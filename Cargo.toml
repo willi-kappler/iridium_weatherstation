@@ -1,0 +1,15 @@
+[package]
+name = "iridium_weatherstation"
+version = "0.1.0"
+authors = ["Willi Kappler"]
+
+[lib]
+name = "station_util"
+path = "src/station_util.rs"
+
+[dependencies]
+time = "0.1"
+rusqlite = "0.6"
+flexi_logger = "0.3"
+log = "0.3"
+clap = "2.1"
