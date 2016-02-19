@@ -19,6 +19,8 @@ use flexi_logger::{detailed_format, init, LogConfig};
 
 // Internal modules:
 use station_util::configuration::setup_configuration;
+use station_util::server::start_service;
+
 
 fn main() {
     // Parse command line arguments
@@ -32,9 +34,11 @@ fn main() {
 
     let mut ports = String::new();
 
-    for p in config.ports {
+    for p in &config.ports {
         ports.push_str(&format!("{}, ", p));
     }
 
     info!("Using ports: {}", ports);
+
+    start_service(config.ports);
 }
