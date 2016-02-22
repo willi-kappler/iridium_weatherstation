@@ -7,66 +7,50 @@ use std::thread::spawn;
 use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
 use std::fs::OpenOptions;
+use std::io::BufWriter;
+use std::io::Result;
+use time::now;
 
 // Internal modules:
 use configuration::Configuration;
 
-/*
-#[derive(Debug)]
-enum ServerError {
-    TCPAddressError(),
-    TCPStreamError(),
-    IOOpenError(),
-    IOWriteError(),
-    MutexError()
-
-}
-*/
-
-fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr, all_data_file: &Arc<Mutex<String>>) {
+fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr, all_data_file: &Arc<Mutex<String>>) -> Result<()> {
     info!("Client socket address: {}", remote_addr);
 
-	let local_port = match stream.local_addr() {
-		Ok(local_addr) => {
-			match local_addr {
-				SocketAddr::V4(local_addr) => Some(local_addr.port()),
-				SocketAddr::V6(local_addr) => Some(local_addr.port())
-			}
-		}
-		Err(e) => {
-			info!("TCP/IP Address error: {}", e);
-			None
-		}
-	};
+    let local_addr = try!(stream.local_addr());
+
+    let local_port = match local_addr {
+        SocketAddr::V4(local_addr) => local_addr.port(),
+    	SocketAddr::V6(local_addr) => local_addr.port()
+    };
+
+    info!("Port: {}", local_port);
 
 	let mut buffer = Vec::new();
 
-	let res = stream.read_to_end(&mut buffer);
+    let len = try!(stream.read_to_end(&mut buffer));
+    info!("Number of bytes received: {}", len);
+    info!("Bytes: {:?}", buffer);
 
-	match res {
-		Ok(len) => {
-			info!("Number of bytes received: {}", len);
-			info!("Bytes: {:?}", buffer);
-		},
-		Err(e) => info!("TCP stream read error: {}", e)
-	}
+    match all_data_file.lock() {
+        Ok(all_data_file) => {
+            let mut file_handle = BufWriter::new(try!(OpenOptions::new().write(true).create(true).append(true).open(&*all_data_file)));
 
-	if let Some(port) = local_port {
-		info!("Port: {}", port);
+            let tm = now();
+            let tm = tm.strftime("%Y.%m.%d - %H:%M:%S").unwrap();
 
-        match all_data_file.lock() {
-            Ok(all_data_file_1) => {
-                match OpenOptions::new().write(true).create(true).append(true).open(&*all_data_file_1) {
-                    Ok(file_handle) => {
-                        //file_handle.write_fmt();
-                    },
-                    Err(e) => info!("IO open error: {}", e)
-                }
-            },
-            Err(e) => info!("Mutex error: {}", e)
-        }
+            try!(write!(file_handle, "<measure>\n"));
+            try!(write!(file_handle, "<port>{}</port>\n", local_port));
+            try!(write!(file_handle, "<date_time>{}</date_time>\n", &tm));
+            try!(write!(file_handle, "<data>\n"));
+            try!(write!(file_handle, "{:?}\n", buffer));
+            try!(write!(file_handle, "</data>\n"));
+            try!(write!(file_handle, "</measure>\n"));
+        },
+        Err(e) => info!("Mutex (poison) error: {}", e)
+    }
 
-	}
+    Ok(())
 }
 
 pub fn start_service(config: Configuration) {
@@ -82,13 +66,15 @@ pub fn start_service(config: Configuration) {
     let all_data_file = Arc::new(Mutex::new(config.all_data_file.clone()));
 
     for listener in listeners {
-        let all_data_file_1 = all_data_file.clone();
+        let all_data_file = all_data_file.clone();
         spawn(move|| {
             loop {
                 let result = listener.accept();
                 if let Ok(result) = result {
 					let (mut stream, addr) = result;
-                    handle_client(&mut stream, &addr, &all_data_file_1);
+                    if let Err(io_error) = handle_client(&mut stream, &addr, &all_data_file) {
+                        info!("IOError: {}", io_error);
+                    }
                 }
             }
         });
