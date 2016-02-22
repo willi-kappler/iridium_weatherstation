@@ -13,6 +13,8 @@ extern crate flexi_logger;
 extern crate station_util;
 
 // System modules:
+use std::time::{Duration};
+use std::thread::sleep;
 
 // External modules:
 use flexi_logger::{detailed_format, init, LogConfig};
@@ -40,5 +42,10 @@ fn main() {
 
     info!("Using ports: {}", ports);
 
-    start_service(config.ports);
+    start_service(config);
+
+    loop {
+        info!("Alive message");
+        sleep(Duration::new(7200, 0));
+    }
 }

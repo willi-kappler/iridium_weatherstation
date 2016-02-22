@@ -4,14 +4,17 @@
 // External modules:
 use clap::{App, Arg};
 
-
 /// slurm_inspector configuration (from command line arguments)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Configuration {
     /// Ports for weather stations
     pub ports: Vec<u16>,
     /// Set the log level for flexi_logger: error, info or debug
-    pub log_level: String
+    pub log_level: String,
+    /// File that contains all the data
+    pub all_data_file: String,
+    /// Folder that contains individual data, monthly basis
+    pub monthly_data_folder: String
 }
 
 fn default_ports() -> Vec<u16> {
@@ -71,7 +74,9 @@ pub fn setup_configuration() -> Configuration {
 
         Configuration {
             ports: ports,
-            log_level: log_level.to_string()
+            log_level: log_level.to_string(),
+            all_data_file: "all_data.txt".to_string(),
+            monthly_data_folder: "monthly".to_string()
         }
 }
 
