@@ -75,7 +75,7 @@ pub fn setup_configuration() -> Configuration {
         Configuration {
             ports: ports,
             log_level: log_level.to_string(),
-            all_data_file: "all_data.txt".to_string(),
+            all_data_file: "all_data".to_string(),
             monthly_data_folder: "monthly".to_string()
         }
 }

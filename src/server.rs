@@ -9,10 +9,27 @@ use std::sync::{Arc, Mutex};
 use std::fs::OpenOptions;
 use std::io::BufWriter;
 use std::io::Result;
-use time::now;
+use time::{now, Tm};
 
 // Internal modules:
 use configuration::Configuration;
+
+fn write_data(tm: Tm, local_port: u16, buffer: &Vec<u8>, file_name: &str) -> Result<()> {
+    let mut file_handle = BufWriter::new(try!(OpenOptions::new()
+        .write(true).create(true).append(true).open(file_name)));
+
+    let current_date_time = tm.strftime("%Y.%m.%d - %H:%M:%S").unwrap();
+
+    try!(write!(file_handle, "<measure>\n"));
+    try!(write!(file_handle, "<port>{}</port>\n", local_port));
+    try!(write!(file_handle, "<date_time>{}</date_time>\n", &current_date_time));
+    try!(write!(file_handle, "<data>\n"));
+    try!(write!(file_handle, "{:?}\n", buffer));
+    try!(write!(file_handle, "</data>\n"));
+    try!(write!(file_handle, "</measure>\n\n"));
+
+    Ok(())
+}
 
 fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
     all_data_file: &Arc<Mutex<String>>, monthly_data_folder: &Arc<Mutex<String>>) -> Result<()> {
@@ -33,26 +50,14 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
     info!("Number of bytes received: {}", len);
     info!("Bytes: {:?}", buffer);
 
-    // TODO: refactor to utility function
-
     // TODO: use str::from_utf8(buf) if data is sent in clear text
     // Otherwise parse binary data to floats
 
     match all_data_file.lock() {
         Ok(all_data_file) => {
-            let mut file_handle = BufWriter::new(try!(OpenOptions::new()
-                .write(true).create(true).append(true).open(&*all_data_file)));
-
             let tm = now();
-            let current_date_time = tm.strftime("%Y.%m.%d - %H:%M:%S").unwrap();
-
-            try!(write!(file_handle, "<measure>\n"));
-            try!(write!(file_handle, "<port>{}</port>\n", local_port));
-            try!(write!(file_handle, "<date_time>{}</date_time>\n", &current_date_time));
-            try!(write!(file_handle, "<data>\n"));
-            try!(write!(file_handle, "{:?}\n", buffer));
-            try!(write!(file_handle, "</data>\n"));
-            try!(write!(file_handle, "</measure>\n\n"));
+            let file_name = format!("{}/{}.txt", local_port, *all_data_file);
+            try!(write_data(tm, local_port, &buffer, &file_name));
         },
         Err(e) => info!("Mutex (poison) error (all_data_file): {}", e)
     }
@@ -62,25 +67,12 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
             let tm = now();
             let current_year = tm.strftime("%Y").unwrap();
             let current_month = tm.strftime("%m").unwrap();
-            // TODO: create separate folder for year and month
-            let file_name = format!("{}/{}_{}.txt", *monthly_data_folder, current_year, current_month);
-            let mut file_handle = BufWriter::new(try!(OpenOptions::new()
-                .write(true).create(true).append(true).open(file_name)));
-
-            let current_date_time = tm.strftime("%Y.%m.%d - %H:%M:%S").unwrap();
-
-            try!(write!(file_handle, "<measure>\n"));
-            try!(write!(file_handle, "<port>{}</port>\n", local_port));
-            try!(write!(file_handle, "<date_time>{}</date_time>\n", &current_date_time));
-            try!(write!(file_handle, "<data>\n"));
-            try!(write!(file_handle, "{:?}\n", buffer));
-            try!(write!(file_handle, "</data>\n"));
-            try!(write!(file_handle, "</measure>\n\n"));
+            // TODO: create separate folder for year and month in Rust
+            let file_name = format!("{}/{}/{}_{}.txt", *monthly_data_folder, local_port, current_year, current_month);
+            try!(write_data(tm, local_port, &buffer, &file_name));
         },
         Err(e) => info!("Mutex (poison) error (monthly_data_folder): {}", e)
     }
-
-
 
     Ok(())
 }
@@ -89,9 +81,12 @@ pub fn start_service(config: Configuration) {
     let mut listeners = Vec::new();
 
     for port in config.ports {
-        let listener = TcpListener::bind(("0.0.0.0", port));
-        if let Ok(listener) = listener {
-            listeners.push(listener);
+        match TcpListener::bind(("0.0.0.0", port)) {
+            Ok(listener) => {
+                info!("Create listener for port {}", port);
+                listeners.push(listener);
+            },
+            Err(e) => info!("Network error: {}", e)
         }
     }
 
@@ -115,5 +110,3 @@ pub fn start_service(config: Configuration) {
         });
     }
 }
-
-
