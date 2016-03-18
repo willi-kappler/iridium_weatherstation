@@ -5,6 +5,12 @@
 // A simple data processing tool written in Rust for one of the campbell iridium weather stations
 //
 
+// Use half for 16 bit floating point conversion:
+// https://crates.io/crates/half
+// https://github.com/starkat99/half-rs
+// http://starkat99.github.io/half-rs/half/struct.f16.html
+
+
 // External crates:
 #[macro_use] extern crate log;
 extern crate flexi_logger;
