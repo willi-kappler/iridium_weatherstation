@@ -53,6 +53,12 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
     // TODO: use str::from_utf8(buf) if data is sent in clear text
     // Otherwise parse binary data to floats
 
+    // base16 2 byte floats:
+    // https://en.wikipedia.org/wiki/Half-precision_floating-point_format
+    // https://github.com/sgothel/jogl/blob/master/src/jogl/classes/com/jogamp/opengl/math/Binary16.java
+    // https://books.google.de/books?id=FPlICAAAQBAJ&pg=PA84&lpg=PA84&dq=binary16&source=bl&ots=0FAzD4XOqn&sig=98h_pzPlLzUXjB4uY1T8MRIZOnA&hl=de&sa=X&ved=0ahUKEwjkpvXU5ZzLAhVD9HIKHQOfAxYQ6AEITzAH#v=onepage&q=binary16&f=false
+    // http://www.gamedev.net/topic/557338-ieee-754-2008-binary-16-inaccuracy-in-wikipedia/
+
     match all_data_file.lock() {
         Ok(all_data_file) => {
             let tm = now();

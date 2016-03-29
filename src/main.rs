@@ -46,6 +46,6 @@ fn main() {
 
     loop {
         info!("Alive message");
-        sleep(Duration::new(7200, 0));
+        sleep(Duration::new(14400, 0));
     }
 }
