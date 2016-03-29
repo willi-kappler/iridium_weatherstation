@@ -4,6 +4,8 @@
 // External modules:
 use clap::{App, Arg};
 
+pub const HEADER_LENGTH: usize = 48;
+
 /// slurm_inspector configuration (from command line arguments)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Configuration {
