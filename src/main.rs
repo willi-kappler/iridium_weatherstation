@@ -26,7 +26,7 @@ use std::thread::sleep;
 use flexi_logger::{detailed_format, init, LogConfig};
 
 // Internal modules:
-use station_util::configuration::setup_configuration;
+use station_util::configuration::{setup_configuration, ALIVE_MSG_INTERVALL};
 use station_util::server::start_service;
 
 
@@ -52,6 +52,6 @@ fn main() {
 
     loop {
         info!("Alive message");
-        sleep(Duration::new(14400, 0));
+        sleep(Duration::new(ALIVE_MSG_INTERVALL, 0));
     }
 }
