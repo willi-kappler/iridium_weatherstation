@@ -18,15 +18,21 @@ fn write_data(tm: Tm, local_port: u16, buffer: &Vec<u8>, file_name: &str) -> Res
     let mut file_handle = BufWriter::new(try!(OpenOptions::new()
         .write(true).create(true).append(true).open(file_name)));
 
-    let current_date_time = tm.strftime("%Y.%m.%d - %H:%M:%S").unwrap();
+    if buffer.len() > 48 {
+        let current_date_time = tm.strftime("%Y.%m.%d - %H:%M:%S").unwrap();
 
-    try!(write!(file_handle, "<measure>\n"));
-    try!(write!(file_handle, "<port>{}</port>\n", local_port));
-    try!(write!(file_handle, "<date_time>{}</date_time>\n", &current_date_time));
-    try!(write!(file_handle, "<data>\n"));
-    try!(write!(file_handle, "{:?}\n", buffer));
-    try!(write!(file_handle, "</data>\n"));
-    try!(write!(file_handle, "</measure>\n\n"));
+        let (buffer_left, buffer_right) = buffer.split_at(48);
+
+        try!(write!(file_handle, "<measure>\n"));
+        try!(write!(file_handle, "<port>{}</port>\n", local_port));
+        try!(write!(file_handle, "<date_time>{}</date_time>\n", &current_date_time));
+        try!(write!(file_handle, "<data>\n"));
+        try!(write!(file_handle, "{:?}\n", buffer_right));
+        try!(write!(file_handle, "</data>\n"));
+        try!(write!(file_handle, "</measure>\n\n"));
+    } else {
+        info!("Invalid header (less than 48 bytes received)!");
+    }
 
     Ok(())
 }
