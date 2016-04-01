@@ -93,13 +93,11 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
     } else if buffer.len() < HEADER_LENGTH {
         info!("Invalid header (less than {} bytes received)!", HEADER_LENGTH);
         info!("Bytes: {:?}", buffer);
-        let str_buffer = String::from_utf8_lossy(&buffer);
-        info!("Bytes (ASCII): '{}'", str_buffer);
+        info!("Bytes (ASCII): '{}'", String::from_utf8_lossy(&buffer));
     } else { // buffer.len() == HEADER_LENGTH -> no data, only header
         info!("No data received, just header.");
         info!("Bytes: {:?}", buffer);
-        let str_buffer = String::from_utf8_lossy(&buffer);
-        info!("Bytes (ASCII): '{}'", str_buffer);
+        info!("Bytes (ASCII): '{}'", String::from_utf8_lossy(&buffer));
     }
 
     Ok(())
