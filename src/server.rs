@@ -61,8 +61,14 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
     if buffer.len() > HEADER_LENGTH {
         let (buffer_left, buffer_right) = buffer.split_at(HEADER_LENGTH);
 
+        let str_header = String::from_utf8_lossy(buffer_left);
+        let str_data = String::from_utf8_lossy(buffer_right);
+
         info!("Header: {:?}", buffer_left);
         info!("Data: {:?}", buffer_right);
+
+        info!("Header (ASCII): '{}'", str_header);
+        info!("Data (ASCII): '{}'", str_data);
 
         match all_data_file.lock() {
             Ok(all_data_file) => {
@@ -84,9 +90,16 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
             },
             Err(e) => info!("Mutex (poison) error (monthly_data_folder): {}", e)
         }
-    } else {
+    } else if buffer.len() < HEADER_LENGTH {
         info!("Invalid header (less than {} bytes received)!", HEADER_LENGTH);
         info!("Bytes: {:?}", buffer);
+        let str_buffer = String::from_utf8_lossy(&buffer);
+        info!("Bytes (ASCII): '{}'", str_buffer);
+    } else { // buffer.len() == HEADER_LENGTH -> no data, only header
+        info!("No data received, just header.");
+        info!("Bytes: {:?}", buffer);
+        let str_buffer = String::from_utf8_lossy(&buffer);
+        info!("Bytes (ASCII): '{}'", str_buffer);
     }
 
     Ok(())
