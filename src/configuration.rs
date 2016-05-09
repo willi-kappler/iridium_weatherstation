@@ -83,53 +83,60 @@ pub fn setup_configuration() -> Configuration {
         }
 }
 
-#[test]
-fn test_setup_configuration() {
-    assert_eq!(setup_configuration(), Configuration{ ports: vec![2001, 2002, 2003], log_level: "info".to_string() });
-}
+#[cfg(test)]
+mod tests {
+    use super::{string_to_ports, default_ports, setup_configuration, Configuration};
 
-#[test]
-fn test_default_ports() {
-    assert_eq!(default_ports(), vec![2001, 2002, 2003]);
-}
+    #[test]
+    fn test_setup_configuration() {
+        assert_eq!(setup_configuration(), Configuration{ ports: vec![2001, 2002, 2003],
+            log_level: "info".to_string(),
+            all_data_file: "all_data".to_string(),
+            monthly_data_folder: "monthly".to_string()});
+    }
 
-#[test]
-fn test_string_to_ports01() {
-    assert_eq!(string_to_ports(""), vec![2001, 2002, 2003]);
-}
+    #[test]
+    fn test_default_ports() {
+        assert_eq!(default_ports(), vec![2001, 2002, 2003]);
+    }
 
-#[test]
-fn test_string_to_ports02() {
-    assert_eq!(string_to_ports("xyz"), vec![2001, 2002, 2003]);
-}
+    #[test]
+    fn test_string_to_ports01() {
+        assert_eq!(string_to_ports(""), vec![2001, 2002, 2003]);
+    }
 
-#[test]
-fn test_string_to_ports03() {
-    assert_eq!(string_to_ports("123"), vec![123]);
-}
+    #[test]
+    fn test_string_to_ports02() {
+        assert_eq!(string_to_ports("xyz"), vec![2001, 2002, 2003]);
+    }
 
-#[test]
-fn test_string_to_ports04() {
-    assert_eq!(string_to_ports("123:"), vec![123]);
-}
+    #[test]
+    fn test_string_to_ports03() {
+        assert_eq!(string_to_ports("123"), vec![123]);
+    }
 
-#[test]
-fn test_string_to_ports05() {
-    assert_eq!(string_to_ports("123:456"), vec![123, 456]);
-}
+    #[test]
+    fn test_string_to_ports04() {
+        assert_eq!(string_to_ports("123:"), vec![123]);
+    }
 
-#[test]
-fn test_string_to_ports06() {
-    assert_eq!(string_to_ports("123: 456"), vec![123, 456]);
-}
+    #[test]
+    fn test_string_to_ports05() {
+        assert_eq!(string_to_ports("123:456"), vec![123, 456]);
+    }
 
-#[test]
-fn test_string_to_ports07() {
-    assert_eq!(string_to_ports("123: 456:999:  675"), vec![123, 456, 675, 999]);
-}
+    #[test]
+    fn test_string_to_ports06() {
+        assert_eq!(string_to_ports("123: 456"), vec![123, 456]);
+    }
 
+    #[test]
+    fn test_string_to_ports07() {
+        assert_eq!(string_to_ports("123: 456:999:  675"), vec![123, 456, 675, 999]);
+    }
 
-#[test]
-fn test_string_to_ports08() {
-    assert_eq!(string_to_ports("123: 456:999:  675: 123"), vec![123, 456, 675, 999]);
+    #[test]
+    fn test_string_to_ports08() {
+        assert_eq!(string_to_ports("123: 456:999:  675: 123"), vec![123, 456, 675, 999]);
+    }
 }
