@@ -9,8 +9,7 @@ path = "src/station_util.rs"
 
 [dependencies]
 time = "0.1"
-rusqlite = "0.6"
-flexi_logger = "0.3"
+flexi_logger = "0.5"
 log = "0.3"
-clap = "2.1"
-half = "0.1.0"
+clap = "2.4"
+# half = "0.1.0"

@@ -14,9 +14,9 @@ use time::{now, Tm};
 // Internal modules:
 use configuration::{Configuration, HEADER_LENGTH};
 
-fn write_data(tm: Tm, local_port: u16, buffer: &[u8], file_name: &str) -> Result<()> {
+fn write_xml_data(tm: Tm, local_port: u16, buffer: &[u8], file_name: &str) -> Result<()> {
     let mut file_handle = BufWriter::new(try!(OpenOptions::new()
-        .write(true).create(true).append(true).open(file_name)));
+        .write(true).create(true).append(true).open(format!("{}.xml", file_name))));
 
     let current_date_time = tm.strftime("%Y.%m.%d - %H:%M:%S").unwrap();
 
@@ -29,6 +29,29 @@ fn write_data(tm: Tm, local_port: u16, buffer: &[u8], file_name: &str) -> Result
     try!(write!(file_handle, "</measure>\n\n"));
 
     Ok(())
+}
+
+fn write_csv_data(buffer: &[u8], file_name: &str) -> Result<()> {
+    let mut file_handle = BufWriter::new(try!(OpenOptions::new()
+        .write(true).create(true).append(true).open(format!("{}.csv", file_name))));
+
+    for i in 3..buffer.len() {
+        try!(write!(file_handle, "{}", buffer[i].to_string()));
+    }
+
+    try!(write!(file_handle, "\n"));
+
+    Ok(())
+}
+
+fn port_to_station(port: u16) -> String{
+    match port {
+        2100 => "2100_Na".to_string(),
+        2101 => "2101_SG".to_string(),
+        2102 => "2102_PdA".to_string(),
+        2103 => "2103_LC".to_string(),
+        _ => "unknown".to_string()
+    }
 }
 
 fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
@@ -70,11 +93,14 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
         info!("Header (ASCII): '{}'", str_header);
         info!("Data (ASCII): '{}'", str_data);
 
+        let station_folder = port_to_station(local_port);
+
         match all_data_file.lock() {
             Ok(all_data_file) => {
                 let tm = now();
-                let file_name = format!("{}/{}.txt", local_port, *all_data_file);
-                try!(write_data(tm, local_port, buffer_right, &file_name));
+                let file_name = format!("{}/{}", station_folder, *all_data_file);
+                try!(write_xml_data(tm, local_port, buffer_right, &file_name));
+                try!(write_csv_data(buffer_right, &file_name));
             },
             Err(e) => info!("Mutex (poison) error (all_data_file): {}", e)
         }
@@ -85,8 +111,9 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
                 let current_year = tm.strftime("%Y").unwrap();
                 let current_month = tm.strftime("%m").unwrap();
                 // TODO: create separate folder for year and month in Rust
-                let file_name = format!("{}/{}/{}_{}.txt", *monthly_data_folder, local_port, current_year, current_month);
-                try!(write_data(tm, local_port, buffer_right, &file_name));
+                let file_name = format!("{}/{}/{}_{}", *monthly_data_folder, station_folder, current_year, current_month);
+                try!(write_xml_data(tm, local_port, buffer_right, &file_name));
+                try!(write_csv_data(buffer_right, &file_name));
             },
             Err(e) => info!("Mutex (poison) error (monthly_data_folder): {}", e)
         }
