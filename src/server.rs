@@ -36,7 +36,7 @@ fn write_csv_data(buffer: &[u8], file_name: &str) -> Result<()> {
         .write(true).create(true).append(true).open(format!("{}.csv", file_name))));
 
     for i in 3..buffer.len() {
-        try!(write!(file_handle, "{}", buffer[i].to_string()));
+        try!(write!(file_handle, "{}", (buffer[i] as char) ));
     }
 
     try!(write!(file_handle, "\n"));
