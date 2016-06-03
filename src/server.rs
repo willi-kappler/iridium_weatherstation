@@ -50,6 +50,7 @@ fn port_to_station(port: u16) -> String{
         2101 => "2101_SG".to_string(),
         2102 => "2102_PdA".to_string(),
         2103 => "2103_LC".to_string(),
+        2104 => "2104_Tue".to_string(),
         _ => "unknown".to_string()
     }
 }
