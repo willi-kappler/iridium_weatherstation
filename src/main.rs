@@ -1,4 +1,4 @@
-// iridium_weatherstation V0.1 (2016.02.18), written by Willi Kappler
+// iridium_weatherstation V0.1 (2016.05.09), written by Willi Kappler
 //
 // Licensed under the MIT License
 //
