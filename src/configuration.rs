@@ -7,7 +7,7 @@ use clap::{App, Arg};
 pub const HEADER_LENGTH: usize = 48;
 pub const ALIVE_MSG_INTERVALL: u64 = 60*60*4;
 
-/// slurm_inspector configuration (from command line arguments)
+/// Server configuration from command line arguments
 #[derive(Debug, Clone, PartialEq)]
 pub struct Configuration {
     /// Ports for weather stations

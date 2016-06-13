@@ -13,8 +13,9 @@ use time::{now, Tm};
 
 // Internal modules:
 use configuration::{Configuration, HEADER_LENGTH};
+use data_parser::{parse_data, StationDataType};
 
-fn write_xml_data(tm: Tm, local_port: u16, buffer: &[u8], file_name: &str) -> Result<()> {
+fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &str) -> Result<()> {
     let mut file_handle = BufWriter::new(try!(OpenOptions::new()
         .write(true).create(true).append(true).open(format!("{}.xml", file_name))));
 
@@ -24,7 +25,7 @@ fn write_xml_data(tm: Tm, local_port: u16, buffer: &[u8], file_name: &str) -> Re
     try!(write!(file_handle, "<port>{}</port>\n", local_port));
     try!(write!(file_handle, "<date_time>{}</date_time>\n", &current_date_time));
     try!(write!(file_handle, "<data>\n"));
-    try!(write!(file_handle, "{:?}\n", buffer));
+    try!(write!(file_handle, "{:?}\n", data));
     try!(write!(file_handle, "</data>\n"));
     try!(write!(file_handle, "</measure>\n\n"));
 
@@ -96,27 +97,36 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
 
         let station_folder = port_to_station(local_port);
 
-        match all_data_file.lock() {
-            Ok(all_data_file) => {
-                let tm = now();
-                let file_name = format!("{}/{}", station_folder, *all_data_file);
-                try!(write_xml_data(tm, local_port, buffer_right, &file_name));
-                try!(write_csv_data(buffer_right, &file_name));
-            },
-            Err(e) => info!("Mutex (poison) error (all_data_file): {}", e)
-        }
+        match parse_data(&buffer_right) {
+            Ok(parsed_data) => {
+                match all_data_file.lock() {
+                    Ok(all_data_file) => {
+                        let tm = now();
+                        let file_name = format!("{}/{}", station_folder, *all_data_file);
+                        try!(write_xml_data(tm, local_port, &parsed_data, &file_name));
+                        try!(write_csv_data(buffer_right, &file_name));
+                    },
+                    Err(e) => info!("Mutex (poison) error (all_data_file): {}", e)
+                }
 
-        match monthly_data_folder.lock() {
-            Ok(monthly_data_folder) => {
-                let tm = now();
-                let current_year = tm.strftime("%Y").unwrap();
-                let current_month = tm.strftime("%m").unwrap();
-                // TODO: create separate folder for year and month in Rust
-                let file_name = format!("{}/{}/{}_{}", *monthly_data_folder, station_folder, current_year, current_month);
-                try!(write_xml_data(tm, local_port, buffer_right, &file_name));
-                try!(write_csv_data(buffer_right, &file_name));
+                match monthly_data_folder.lock() {
+                    Ok(monthly_data_folder) => {
+                        let tm = now();
+                        let current_year = tm.strftime("%Y").unwrap();
+                        let current_month = tm.strftime("%m").unwrap();
+                        // TODO: create separate folder for year and month in Rust
+                        let file_name = format!("{}/{}/{}_{}", *monthly_data_folder, station_folder, current_year, current_month);
+                        try!(write_xml_data(tm, local_port, &parsed_data, &file_name));
+                        try!(write_csv_data(buffer_right, &file_name));
+                    },
+                    Err(e) => info!("Mutex (poison) error (monthly_data_folder): {}", e)
+                }
+
             },
-            Err(e) => info!("Mutex (poison) error (monthly_data_folder): {}", e)
+            Err(e) => {
+                info!("Could not parse data: {}", e);
+            }
+
         }
     } else if buffer.len() < HEADER_LENGTH {
         info!("Invalid header (less than {} bytes received)!", HEADER_LENGTH);
