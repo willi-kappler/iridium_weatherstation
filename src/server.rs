@@ -97,7 +97,7 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
 
         let station_folder = port_to_station(local_port);
 
-        match parse_data(&buffer_right) {
+        match parse_text_data(&buffer_right) {
             Ok(parsed_data) => {
                 match all_data_file.lock() {
                     Ok(all_data_file) => {

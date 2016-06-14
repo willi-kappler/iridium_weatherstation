@@ -88,8 +88,8 @@ fn parse_other_data(time_stamp: &Tm, line_elements: &Vec<&str>) -> Result<Statio
     }))
 }
 
-/// Parse all the data that is send from the weather station.
-pub fn parse_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
+/// Parse all the data that is send (as text) from the weather station.
+pub fn parse_text_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
     let line = str::from_utf8(buffer);
 
     match line {
@@ -97,15 +97,11 @@ pub fn parse_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
             if line_str.is_empty() {
                 Err(ParseError::EmptyBuffer)
             } else {
-                //let line_string = line_str.as_string();
                 let re = Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}").unwrap();
                 if re.is_match(line_str) {// Found valid time stamp
                     // Prepare for parsing, split line at every ','
                     let remove_junk = |c| c < '0' || c > '9';
                     let line_elements: Vec<&str> = line_str.split(',').map(|elem| elem.trim_matches(&remove_junk)).collect();
-                    // println!("time_stamp: {}", line_elements[0]);
-                    // let remove_chars: &[_] = &['\x00', '\x02', '\x1E', '\x22', 'J'];
-                    // println!("time_stamp_str: {}", time_stamp_str);
                     let time_stamp = strptime(line_elements[0].trim_matches(&remove_junk), "%Y-%m-%d %H:%M:%S").unwrap();
 
                     if line_elements.len() == 3 { // Only battery
@@ -135,6 +131,11 @@ pub fn parse_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
     }
 }
 
+/// Parse all the data that is send (as binary) from the weather station.
+pub fn parse_binary_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
+    Err(ParseError::EmptyBuffer)
+}
+
 #[cfg(test)]
 mod tests {
     use time::strptime;
@@ -143,19 +144,19 @@ mod tests {
 
     #[test]
     fn test_parse_data_empty() {
-        let result = parse_data(&[]);
+        let result = parse_text_data(&[]);
         assert_eq!(result, Err(ParseError::EmptyBuffer));
     }
 
     #[test]
     fn test_parse_data_header1() {
-        let result = parse_data(&[65, 65, 65]);
+        let result = parse_text_data(&[65, 65, 65]);
         assert_eq!(result, Err(ParseError::NoTimeStamp));
     }
 
     #[test]
     fn test_parse_data_header2() { // CSV header, we don't need it
-        let result = parse_data(&[2, 0, 97, 34, 84, 83, 34, 44, 34, 68, 101, 103, 32, 67, 34,
+        let result = parse_text_data(&[2, 0, 97, 34, 84, 83, 34, 44, 34, 68, 101, 103, 32, 67, 34,
             44, 34, 37, 34, 44, 34, 87, 47, 109, 66, 50, 34, 44, 34, 109, 66, 51, 47, 109, 66,
             51, 34, 44, 34, 68, 101, 103, 32, 67, 34, 44, 34, 109, 101, 116, 101, 114, 115, 47,
             115, 101, 99, 111, 110, 100, 34, 44, 34, 109, 101, 116, 101, 114, 115, 47, 115, 101,
@@ -166,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_parse_data_correct1() { // All data from the station
-        let result = parse_data(&[2, 0, 74, 34, 50, 48, 49, 54, 45, 48, 54, 45, 49, 49, 32, 48,
+        let result = parse_text_data(&[2, 0, 74, 34, 50, 48, 49, 54, 45, 48, 54, 45, 49, 49, 32, 48,
             57, 58, 48, 48, 58, 48, 48, 34, 44, 55, 46, 53, 54, 44, 51, 50, 46, 50, 53, 44, 49,
             46, 51, 51, 51, 44, 48, 46, 48, 50, 50, 44, 49, 53, 46, 49, 56, 44, 48, 46, 55, 56,
             50, 44, 49, 46, 55, 53, 44, 50, 53, 54, 46, 55, 44, 48, 44, 57, 53, 49, 10]);
@@ -187,14 +188,14 @@ mod tests {
 
     #[test]
     fn test_parse_data_correct2() { // Only battery data
-        let result = parse_data(&[2, 0, 30, 34, 50, 48, 49, 54, 45, 48, 54, 45, 49, 50, 32, 48,
+        let result = parse_text_data(&[2, 0, 30, 34, 50, 48, 49, 54, 45, 48, 54, 45, 49, 50, 32, 48,
             48, 58, 48, 48, 58, 48, 48, 34, 44, 49, 50, 46, 55, 51, 44, 48, 10]);
         assert_eq!(result, Ok(StationDataType::BatteryVoltage(strptime("2016-06-12 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap(), 12.73)));
     }
 
     #[test]
     fn test_parse_data_wrong_columns() { // Wrong number of columns
-        let result = parse_data(&[2, 0, 74, 34, 50, 48, 49, 54, 45, 48, 54, 45, 49, 49, 32, 48,
+        let result = parse_text_data(&[2, 0, 74, 34, 50, 48, 49, 54, 45, 48, 54, 45, 49, 49, 32, 48,
             57, 58, 48, 48, 58, 48, 48, 34, 44, 55, 46, 53, 54, 44, 51, 50, 46, 50, 53, 44, 49,
             46, 51, 51, 51, 44, 48, 46, 48, 50, 50, 44, 49, 53, 46, 49, 56, 44, 48, 46, 55]);
         assert_eq!(result, Err(ParseError::WrongNumberOfColumns));
