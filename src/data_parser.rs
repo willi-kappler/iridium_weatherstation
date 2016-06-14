@@ -26,8 +26,8 @@ pub struct WeatherStationData {
 /// Wrapper type: do we have just battery data or everything else ?
 #[derive(Debug, Clone, PartialEq)]
 pub enum StationDataType {
-    BatteryVoltage(Tm, f64),
-    OtherData(WeatherStationData)
+    SingleData(Tm, f64),
+    MultipleData(WeatherStationData)
 }
 
 /// ErrorType, what can go wrong during parsing...
@@ -73,7 +73,7 @@ fn parse_other_data(time_stamp: &Tm, line_elements: &Vec<&str>) -> Result<Statio
     let percipitation = try!(line_elements[9].parse::<f64>());
     let air_pressure = try!(line_elements[10].parse::<f64>());
 
-    Ok(StationDataType::OtherData(WeatherStationData{
+    Ok(StationDataType::MultipleData(WeatherStationData{
         time_stamp: *time_stamp,
         air_temperature: air_temperature,
         air_relative_humidity: air_relative_humidity,
@@ -109,7 +109,7 @@ pub fn parse_text_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
 
                         match battery_voltage {
                             Ok(value) => {
-                                Ok(StationDataType::BatteryVoltage(time_stamp, value))
+                                Ok(StationDataType::SingleData(time_stamp, value))
                             },
                             Err(e) => {
                                 Err(ParseError::ParseFloatError(e))
@@ -171,7 +171,7 @@ mod tests {
             57, 58, 48, 48, 58, 48, 48, 34, 44, 55, 46, 53, 54, 44, 51, 50, 46, 50, 53, 44, 49,
             46, 51, 51, 51, 44, 48, 46, 48, 50, 50, 44, 49, 53, 46, 49, 56, 44, 48, 46, 55, 56,
             50, 44, 49, 46, 55, 53, 44, 50, 53, 54, 46, 55, 44, 48, 44, 57, 53, 49, 10]);
-        assert_eq!(result, Ok(StationDataType::OtherData(WeatherStationData{
+        assert_eq!(result, Ok(StationDataType::MultipleData(WeatherStationData{
             time_stamp: strptime("2016-06-11 09:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
             air_temperature: 7.56,
             air_relative_humidity: 32.25,
@@ -190,7 +190,7 @@ mod tests {
     fn test_parse_data_correct2() { // Only battery data
         let result = parse_text_data(&[2, 0, 30, 34, 50, 48, 49, 54, 45, 48, 54, 45, 49, 50, 32, 48,
             48, 58, 48, 48, 58, 48, 48, 34, 44, 49, 50, 46, 55, 51, 44, 48, 10]);
-        assert_eq!(result, Ok(StationDataType::BatteryVoltage(strptime("2016-06-12 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap(), 12.73)));
+        assert_eq!(result, Ok(StationDataType::SingleData(strptime("2016-06-12 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap(), 12.73)));
     }
 
     #[test]

@@ -29,28 +29,26 @@ fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &s
     // try!(write!(file_handle, "{:?}\n", data));
 
     match data {
-        &StationDataType::BatteryVoltage(time_stamp_tm, voltage) => {
+        &StationDataType::SingleData(time_stamp_tm, voltage) => {
             if let Ok(time_stamp) = time_stamp_tm.strftime("%Y.%m.%d - %H:%M:%S") {
-                try!(write!(file_handle, "<time_stamp>{}</time_stamp>\n", time_stamp));
+                try!(write!(file_handle, "    <time_stamp>{}</time_stamp>\n", time_stamp));
+                try!(write!(file_handle, "    <voltage>{}</voltage>\n", voltage));
             }
-
-            try!(write!(file_handle, "<voltage>{}</voltage>\n", voltage));
         },
-        &StationDataType::OtherData(ref full_data_set) => {
+        &StationDataType::MultipleData(ref full_data_set) => {
             if let Ok(time_stamp) = full_data_set.time_stamp.strftime("%Y.%m.%d - %H:%M:%S") {
-                try!(write!(file_handle, "<time_stamp>{}</time_stamp>\n", time_stamp));
+                try!(write!(file_handle, "    <time_stamp>{}</time_stamp>\n", time_stamp));
+                try!(write!(file_handle, "    <air_temperature>{}</air_temperature>\n", full_data_set.air_temperature));
+                try!(write!(file_handle, "    <air_relative_humidity>{}</air_relative_humidity>\n", full_data_set.air_relative_humidity));
+                try!(write!(file_handle, "    <solar_radiation>{}</solar_radiation>\n", full_data_set.solar_radiation));
+                try!(write!(file_handle, "    <soil_water_content>{}</soil_water_content>\n", full_data_set.soil_water_content));
+                try!(write!(file_handle, "    <soil_temperature>{}</soil_temperature>\n", full_data_set.soil_temperature));
+                try!(write!(file_handle, "    <wind_speed>{}</wind_speed>\n", full_data_set.wind_speed));
+                try!(write!(file_handle, "    <wind_max>{}</wind_max>\n", full_data_set.wind_max));
+                try!(write!(file_handle, "    <wind_direction>{}</wind_direction>\n", full_data_set.wind_direction));
+                try!(write!(file_handle, "    <percipitation>{}</percipitation>\n", full_data_set.percipitation));
+                try!(write!(file_handle, "    <air_pressure>{}</air_pressure>\n", full_data_set.air_pressure));
             }
-
-            try!(write!(file_handle, "<air_temperature>{}</air_temperature>\n", full_data_set.air_temperature));
-            try!(write!(file_handle, "<air_relative_humidity>{}</air_relative_humidity>\n", full_data_set.air_relative_humidity));
-            try!(write!(file_handle, "<solar_radiation>{}</solar_radiation>\n", full_data_set.solar_radiation));
-            try!(write!(file_handle, "<soil_water_content>{}</soil_water_content>\n", full_data_set.soil_water_content));
-            try!(write!(file_handle, "<soil_temperature>{}</soil_temperature>\n", full_data_set.soil_temperature));
-            try!(write!(file_handle, "<wind_speed>{}</wind_speed>\n", full_data_set.wind_speed));
-            try!(write!(file_handle, "<wind_max>{}</wind_max>\n", full_data_set.wind_max));
-            try!(write!(file_handle, "<wind_direction>{}</wind_direction>\n", full_data_set.wind_direction));
-            try!(write!(file_handle, "<percipitation>{}</percipitation>\n", full_data_set.percipitation));
-            try!(write!(file_handle, "<air_pressure>{}</air_pressure>\n", full_data_set.air_pressure));
         }
     }
 
@@ -60,15 +58,34 @@ fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &s
     Ok(())
 }
 
-fn write_csv_data(buffer: &[u8], file_name: &str) -> Result<()> {
+fn write_csv_data(data: &StationDataType, file_name: &str) -> Result<()> {
     let mut file_handle = BufWriter::new(try!(OpenOptions::new()
         .write(true).create(true).append(true).open(format!("{}.csv", file_name))));
 
-    for i in 3..buffer.len() {
-        try!(write!(file_handle, "{}", (buffer[i] as char) ));
-    }
-
-    try!(write!(file_handle, "\n"));
+        match data {
+            &StationDataType::SingleData(time_stamp_tm, voltage) => {
+                if let Ok(time_stamp) = time_stamp_tm.strftime("%Y.%m.%d - %H:%M:%S") {
+                    try!(write!(file_handle, "\"{}\", {}\n", time_stamp, voltage));
+                }
+            },
+            &StationDataType::MultipleData(ref full_data_set) => {
+                if let Ok(time_stamp) = full_data_set.time_stamp.strftime("%Y.%m.%d - %H:%M:%S") {
+                    try!(write!(file_handle, "\"{}\", {}, {}, {}, {}, {}, {}, {}, {}, {}, {}\n",
+                        time_stamp,
+                        full_data_set.air_temperature,
+                        full_data_set.air_relative_humidity,
+                        full_data_set.solar_radiation,
+                        full_data_set.soil_water_content,
+                        full_data_set.soil_temperature,
+                        full_data_set.wind_speed,
+                        full_data_set.wind_max,
+                        full_data_set.wind_direction,
+                        full_data_set.percipitation,
+                        full_data_set.air_pressure
+                    ));
+                }
+            }
+        }
 
     Ok(())
 }
@@ -153,7 +170,7 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
                         let tm = now();
                         let file_name = format!("{}/{}", station_folder, *all_data_file);
                         try!(write_xml_data(tm, local_port, &parsed_data, &file_name));
-                        try!(write_csv_data(buffer_right, &file_name));
+                        try!(write_csv_data(&parsed_data, &file_name));
                     },
                     Err(e) => info!("Mutex (poison) error (all_data_file): {}", e)
                 }
@@ -166,7 +183,7 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
                         // TODO: create separate folder for year and month in Rust
                         let file_name = format!("{}/{}/{}_{}", *monthly_data_folder, station_folder, current_year, current_month);
                         try!(write_xml_data(tm, local_port, &parsed_data, &file_name));
-                        try!(write_csv_data(buffer_right, &file_name));
+                        try!(write_csv_data(&parsed_data, &file_name));
                     },
                     Err(e) => info!("Mutex (poison) error (monthly_data_folder): {}", e)
                 }
