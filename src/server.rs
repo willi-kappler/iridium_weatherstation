@@ -13,7 +13,7 @@ use time::{now, Tm};
 
 // Internal modules:
 use configuration::{Configuration, HEADER_LENGTH};
-use data_parser::{parse_data, StationDataType};
+use data_parser::{parse_text_data, StationDataType};
 
 fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &str) -> Result<()> {
     let mut file_handle = BufWriter::new(try!(OpenOptions::new()
@@ -25,7 +25,35 @@ fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &s
     try!(write!(file_handle, "<port>{}</port>\n", local_port));
     try!(write!(file_handle, "<date_time>{}</date_time>\n", &current_date_time));
     try!(write!(file_handle, "<data>\n"));
-    try!(write!(file_handle, "{:?}\n", data));
+
+    // try!(write!(file_handle, "{:?}\n", data));
+
+    match data {
+        &StationDataType::BatteryVoltage(time_stamp_tm, voltage) => {
+            if let Ok(time_stamp) = time_stamp_tm.strftime("%Y.%m.%d - %H:%M:%S") {
+                try!(write!(file_handle, "<time_stamp>{}</time_stamp>\n", time_stamp));
+            }
+
+            try!(write!(file_handle, "<voltage>{}</voltage>\n", voltage));
+        },
+        &StationDataType::OtherData(ref full_data_set) => {
+            if let Ok(time_stamp) = full_data_set.time_stamp.strftime("%Y.%m.%d - %H:%M:%S") {
+                try!(write!(file_handle, "<time_stamp>{}</time_stamp>\n", time_stamp));
+            }
+
+            try!(write!(file_handle, "<air_temperature>{}</air_temperature>\n", full_data_set.air_temperature));
+            try!(write!(file_handle, "<air_relative_humidity>{}</air_relative_humidity>\n", full_data_set.air_relative_humidity));
+            try!(write!(file_handle, "<solar_radiation>{}</solar_radiation>\n", full_data_set.solar_radiation));
+            try!(write!(file_handle, "<soil_water_content>{}</soil_water_content>\n", full_data_set.soil_water_content));
+            try!(write!(file_handle, "<soil_temperature>{}</soil_temperature>\n", full_data_set.soil_temperature));
+            try!(write!(file_handle, "<wind_speed>{}</wind_speed>\n", full_data_set.wind_speed));
+            try!(write!(file_handle, "<wind_max>{}</wind_max>\n", full_data_set.wind_max));
+            try!(write!(file_handle, "<wind_direction>{}</wind_direction>\n", full_data_set.wind_direction));
+            try!(write!(file_handle, "<percipitation>{}</percipitation>\n", full_data_set.percipitation));
+            try!(write!(file_handle, "<air_pressure>{}</air_pressure>\n", full_data_set.air_pressure));
+        }
+    }
+
     try!(write!(file_handle, "</data>\n"));
     try!(write!(file_handle, "</measure>\n\n"));
 

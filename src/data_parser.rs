@@ -140,7 +140,7 @@ pub fn parse_binary_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
 mod tests {
     use time::strptime;
 
-    use super::{parse_data, StationDataType, ParseError, WeatherStationData};
+    use super::{parse_text_data, StationDataType, ParseError, WeatherStationData};
 
     #[test]
     fn test_parse_data_empty() {
