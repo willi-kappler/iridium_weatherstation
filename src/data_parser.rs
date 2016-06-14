@@ -26,7 +26,9 @@ pub struct WeatherStationData {
 /// Wrapper type: do we have just battery data or everything else ?
 #[derive(Debug, Clone, PartialEq)]
 pub enum StationDataType {
+    /// Single data is just the time stamp and the battery voltage
     SingleData(Tm, f64),
+    /// Multipe data contains the time stamp and all the other data values
     MultipleData(WeatherStationData)
 }
 
@@ -52,6 +54,7 @@ quick_error! {
     }
 }
 
+/// To be able to use the try! macro while parsin floating point values
 impl From<num::ParseFloatError> for ParseError {
     fn from(err: num::ParseFloatError) -> ParseError {
         ParseError::ParseFloatError(err)
@@ -133,6 +136,28 @@ pub fn parse_text_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
 
 /// Parse all the data that is send (as binary) from the weather station.
 pub fn parse_binary_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
+    // base16 2 byte floats:
+    // https://en.wikipedia.org/wiki/Half-precision_floating-point_format
+    // https://github.com/sgothel/jogl/blob/master/src/jogl/classes/com/jogamp/opengl/math/Binary16.java
+    // https://books.google.de/books?id=FPlICAAAQBAJ&pg=PA84&lpg=PA84&dq=binary16&source=bl&ots=0FAzD4XOqn&sig=98h_pzPlLzUXjB4uY1T8MRIZOnA&hl=de&sa=X&ved=0ahUKEwjkpvXU5ZzLAhVD9HIKHQOfAxYQ6AEITzAH#v=onepage&q=binary16&f=false
+    // http://www.gamedev.net/topic/557338-ieee-754-2008-binary-16-inaccuracy-in-wikipedia/
+
+    // Campbells own 2 bytes floating point format:
+    // Bits: ABCDEFGH IJKLMNOP
+    //
+    // A: Sign, 0: +, 1: -
+    //
+    // B, C: Decimal position:
+    // 0, 0: XXXX.
+    // 0, 1: XXX.X
+    // 1, 0: XX.XX
+    // 1, 1: X.XXX
+    //
+    // D: being the MSB
+    //
+    // E-P: 13-bit binary value, Largest 13-bit magnitude is 8191, but Campbell Scientific defines the largest-allowable magnitude as 7999
+
+
     Err(ParseError::EmptyBuffer)
 }
 
@@ -143,19 +168,19 @@ mod tests {
     use super::{parse_text_data, StationDataType, ParseError, WeatherStationData};
 
     #[test]
-    fn test_parse_data_empty() {
+    fn test_parse_text_data_empty() {
         let result = parse_text_data(&[]);
         assert_eq!(result, Err(ParseError::EmptyBuffer));
     }
 
     #[test]
-    fn test_parse_data_header1() {
+    fn test_parse_text_data_header1() {
         let result = parse_text_data(&[65, 65, 65]);
         assert_eq!(result, Err(ParseError::NoTimeStamp));
     }
 
     #[test]
-    fn test_parse_data_header2() { // CSV header, we don't need it
+    fn test_parse_text_data_header2() { // CSV header, we don't need it
         let result = parse_text_data(&[2, 0, 97, 34, 84, 83, 34, 44, 34, 68, 101, 103, 32, 67, 34,
             44, 34, 37, 34, 44, 34, 87, 47, 109, 66, 50, 34, 44, 34, 109, 66, 51, 47, 109, 66,
             51, 34, 44, 34, 68, 101, 103, 32, 67, 34, 44, 34, 109, 101, 116, 101, 114, 115, 47,
@@ -166,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_data_correct1() { // All data from the station
+    fn test_parse_text_data_correct1() { // All data from the station
         let result = parse_text_data(&[2, 0, 74, 34, 50, 48, 49, 54, 45, 48, 54, 45, 49, 49, 32, 48,
             57, 58, 48, 48, 58, 48, 48, 34, 44, 55, 46, 53, 54, 44, 51, 50, 46, 50, 53, 44, 49,
             46, 51, 51, 51, 44, 48, 46, 48, 50, 50, 44, 49, 53, 46, 49, 56, 44, 48, 46, 55, 56,
@@ -187,14 +212,14 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_data_correct2() { // Only battery data
+    fn test_parse_text_data_correct2() { // Only battery data
         let result = parse_text_data(&[2, 0, 30, 34, 50, 48, 49, 54, 45, 48, 54, 45, 49, 50, 32, 48,
             48, 58, 48, 48, 58, 48, 48, 34, 44, 49, 50, 46, 55, 51, 44, 48, 10]);
         assert_eq!(result, Ok(StationDataType::SingleData(strptime("2016-06-12 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap(), 12.73)));
     }
 
     #[test]
-    fn test_parse_data_wrong_columns() { // Wrong number of columns
+    fn test_parse_text_data_wrong_columns() { // Wrong number of columns
         let result = parse_text_data(&[2, 0, 74, 34, 50, 48, 49, 54, 45, 48, 54, 45, 49, 49, 32, 48,
             57, 58, 48, 48, 58, 48, 48, 34, 44, 55, 46, 53, 54, 44, 51, 50, 46, 50, 53, 44, 49,
             46, 51, 51, 51, 44, 48, 46, 48, 50, 50, 44, 49, 53, 46, 49, 56, 44, 48, 46, 55]);
