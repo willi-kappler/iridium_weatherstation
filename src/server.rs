@@ -83,6 +83,27 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
     // https://books.google.de/books?id=FPlICAAAQBAJ&pg=PA84&lpg=PA84&dq=binary16&source=bl&ots=0FAzD4XOqn&sig=98h_pzPlLzUXjB4uY1T8MRIZOnA&hl=de&sa=X&ved=0ahUKEwjkpvXU5ZzLAhVD9HIKHQOfAxYQ6AEITzAH#v=onepage&q=binary16&f=false
     // http://www.gamedev.net/topic/557338-ieee-754-2008-binary-16-inaccuracy-in-wikipedia/
 
+    // base16 2 byte floats:
+    // https://en.wikipedia.org/wiki/Half-precision_floating-point_format
+    // https://github.com/sgothel/jogl/blob/master/src/jogl/classes/com/jogamp/opengl/math/Binary16.java
+    // https://books.google.de/books?id=FPlICAAAQBAJ&pg=PA84&lpg=PA84&dq=binary16&source=bl&ots=0FAzD4XOqn&sig=98h_pzPlLzUXjB4uY1T8MRIZOnA&hl=de&sa=X&ved=0ahUKEwjkpvXU5ZzLAhVD9HIKHQOfAxYQ6AEITzAH#v=onepage&q=binary16&f=false
+    // http://www.gamedev.net/topic/557338-ieee-754-2008-binary-16-inaccuracy-in-wikipedia/
+
+    // Campbells own 2 bytes floating point format:
+    // Bits: ABCDEFGH IJKLMNOP
+    //
+    // A: Sign, 0: +, 1: -
+    //
+    // B, C: Decimal position:
+    // 0, 0: XXXX.
+    // 0, 1: XXX.X
+    // 1, 0: XX.XX
+    // 1, 1: X.XXX
+    //
+    // D: being the MSB
+    //
+    // E-P: 13-bit binary value, Largest 13-bit magnitude is 8191, but Campbell Scientific defines the largest-allowable magnitude as 7999
+
     if buffer.len() > HEADER_LENGTH {
         let (buffer_left, buffer_right) = buffer.split_at(HEADER_LENGTH);
 
