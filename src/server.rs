@@ -174,7 +174,7 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
         info!("Bytes (ASCII): '{}'", String::from_utf8_lossy(&buffer));
     }
 
-    info!("handle_client finished")
+    info!("handle_client finished");
 
     Ok(())
 }
