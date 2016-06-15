@@ -30,13 +30,13 @@ fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &s
 
     match data {
         &StationDataType::SingleData(time_stamp_tm, voltage) => {
-            if let Ok(time_stamp) = time_stamp_tm.strftime("%Y.%m.%d - %H:%M:%S") {
+            if let Ok(time_stamp) = time_stamp_tm.strftime("%Y-%m-%d %H:%M:%S") {
                 try!(write!(file_handle, "    <time_stamp>{}</time_stamp>\n", time_stamp));
                 try!(write!(file_handle, "    <voltage>{}</voltage>\n", voltage));
             }
         },
         &StationDataType::MultipleData(ref full_data_set) => {
-            if let Ok(time_stamp) = full_data_set.time_stamp.strftime("%Y.%m.%d - %H:%M:%S") {
+            if let Ok(time_stamp) = full_data_set.time_stamp.strftime("%Y-%m-%d %H:%M:%S") {
                 try!(write!(file_handle, "    <time_stamp>{}</time_stamp>\n", time_stamp));
                 try!(write!(file_handle, "    <air_temperature>{}</air_temperature>\n", full_data_set.air_temperature));
                 try!(write!(file_handle, "    <air_relative_humidity>{}</air_relative_humidity>\n", full_data_set.air_relative_humidity));
@@ -64,12 +64,12 @@ fn write_csv_data(data: &StationDataType, file_name: &str) -> Result<()> {
 
         match data {
             &StationDataType::SingleData(time_stamp_tm, voltage) => {
-                if let Ok(time_stamp) = time_stamp_tm.strftime("%Y.%m.%d - %H:%M:%S") {
+                if let Ok(time_stamp) = time_stamp_tm.strftime("%Y-%m-%d %H:%M:%S") {
                     try!(write!(file_handle, "\"{}\", {}\n", time_stamp, voltage));
                 }
             },
             &StationDataType::MultipleData(ref full_data_set) => {
-                if let Ok(time_stamp) = full_data_set.time_stamp.strftime("%Y.%m.%d - %H:%M:%S") {
+                if let Ok(time_stamp) = full_data_set.time_stamp.strftime("%Y-%m-%d %H:%M:%S") {
                     try!(write!(file_handle, "\"{}\", {}, {}, {}, {}, {}, {}, {}, {}, {}, {}\n",
                         time_stamp,
                         full_data_set.air_temperature,
@@ -135,6 +135,7 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
 
         match parse_text_data(&buffer_right) {
             Ok(parsed_data) => {
+                info!("Data parsed correctly");
                 match all_data_file.lock() {
                     Ok(all_data_file) => {
                         let tm = now();
@@ -162,7 +163,6 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
             Err(e) => {
                 info!("Could not parse data: {}", e);
             }
-
         }
     } else if buffer.len() < HEADER_LENGTH {
         info!("Invalid header (less than {} bytes received)!", HEADER_LENGTH);
@@ -173,6 +173,8 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
         info!("Bytes: {:?}", buffer);
         info!("Bytes (ASCII): '{}'", String::from_utf8_lossy(&buffer));
     }
+
+    info!("handle_client finished")
 
     Ok(())
 }
