@@ -19,7 +19,7 @@ pub struct WeatherStationData {
     pub wind_speed: f64,
     pub wind_max: f64,
     pub wind_direction: f64,
-    pub percipitation: f64,
+    pub precipitation: f64,
     pub air_pressure: f64,
 }
 
@@ -73,7 +73,7 @@ fn parse_other_data(time_stamp: &Tm, line_elements: &Vec<&str>) -> Result<Statio
     let wind_speed = try!(line_elements[6].parse::<f64>());
     let wind_max = try!(line_elements[7].parse::<f64>());
     let wind_direction = try!(line_elements[8].parse::<f64>());
-    let percipitation = try!(line_elements[9].parse::<f64>());
+    let precipitation = try!(line_elements[9].parse::<f64>());
     let air_pressure = try!(line_elements[10].parse::<f64>());
 
     Ok(StationDataType::MultipleData(WeatherStationData{
@@ -86,7 +86,7 @@ fn parse_other_data(time_stamp: &Tm, line_elements: &Vec<&str>) -> Result<Statio
         wind_speed: wind_speed,
         wind_max: wind_max,
         wind_direction: wind_direction,
-        percipitation: percipitation,
+        precipitation: precipitation,
         air_pressure: air_pressure
     }))
 }
@@ -206,7 +206,7 @@ mod tests {
             wind_speed: 0.782,
             wind_max: 1.75,
             wind_direction: 256.7,
-            percipitation: 0.0,
+            precipitation: 0.0,
             air_pressure: 951.0
         })));
     }

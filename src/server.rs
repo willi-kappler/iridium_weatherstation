@@ -19,7 +19,9 @@ fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &s
     let mut file_handle = BufWriter::new(try!(OpenOptions::new()
         .write(true).create(true).append(true).open(format!("{}.xml", file_name))));
 
-    let current_date_time = tm.strftime("%Y.%m.%d - %H:%M:%S").unwrap();
+    let date_time_format = "%Y-%m-%d %H:%M:%S";
+
+    let current_date_time = tm.strftime(&date_time_format).unwrap();
 
     try!(write!(file_handle, "<measure>\n"));
     try!(write!(file_handle, "<port>{}</port>\n", local_port));
@@ -30,13 +32,13 @@ fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &s
 
     match data {
         &StationDataType::SingleData(time_stamp_tm, voltage) => {
-            if let Ok(time_stamp) = time_stamp_tm.strftime("%Y-%m-%d %H:%M:%S") {
+            if let Ok(time_stamp) = time_stamp_tm.strftime(&date_time_format) {
                 try!(write!(file_handle, "    <time_stamp>{}</time_stamp>\n", time_stamp));
                 try!(write!(file_handle, "    <voltage>{}</voltage>\n", voltage));
             }
         },
         &StationDataType::MultipleData(ref full_data_set) => {
-            if let Ok(time_stamp) = full_data_set.time_stamp.strftime("%Y-%m-%d %H:%M:%S") {
+            if let Ok(time_stamp) = full_data_set.time_stamp.strftime(&date_time_format) {
                 try!(write!(file_handle, "    <time_stamp>{}</time_stamp>\n", time_stamp));
                 try!(write!(file_handle, "    <air_temperature>{}</air_temperature>\n", full_data_set.air_temperature));
                 try!(write!(file_handle, "    <air_relative_humidity>{}</air_relative_humidity>\n", full_data_set.air_relative_humidity));
@@ -46,7 +48,7 @@ fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &s
                 try!(write!(file_handle, "    <wind_speed>{}</wind_speed>\n", full_data_set.wind_speed));
                 try!(write!(file_handle, "    <wind_max>{}</wind_max>\n", full_data_set.wind_max));
                 try!(write!(file_handle, "    <wind_direction>{}</wind_direction>\n", full_data_set.wind_direction));
-                try!(write!(file_handle, "    <percipitation>{}</percipitation>\n", full_data_set.percipitation));
+                try!(write!(file_handle, "    <precipitation>{}</precipitation>\n", full_data_set.precipitation));
                 try!(write!(file_handle, "    <air_pressure>{}</air_pressure>\n", full_data_set.air_pressure));
             }
         }
@@ -62,14 +64,16 @@ fn write_csv_data(data: &StationDataType, file_name: &str) -> Result<()> {
     let mut file_handle = BufWriter::new(try!(OpenOptions::new()
         .write(true).create(true).append(true).open(format!("{}.csv", file_name))));
 
+        let date_time_format = "%Y-%m-%d %H:%M:%S";
+
         match data {
             &StationDataType::SingleData(time_stamp_tm, voltage) => {
-                if let Ok(time_stamp) = time_stamp_tm.strftime("%Y-%m-%d %H:%M:%S") {
+                if let Ok(time_stamp) = time_stamp_tm.strftime(&date_time_format) {
                     try!(write!(file_handle, "\"{}\", {}\n", time_stamp, voltage));
                 }
             },
             &StationDataType::MultipleData(ref full_data_set) => {
-                if let Ok(time_stamp) = full_data_set.time_stamp.strftime("%Y-%m-%d %H:%M:%S") {
+                if let Ok(time_stamp) = full_data_set.time_stamp.strftime(&date_time_format) {
                     try!(write!(file_handle, "\"{}\", {}, {}, {}, {}, {}, {}, {}, {}, {}, {}\n",
                         time_stamp,
                         full_data_set.air_temperature,
@@ -80,7 +84,7 @@ fn write_csv_data(data: &StationDataType, file_name: &str) -> Result<()> {
                         full_data_set.wind_speed,
                         full_data_set.wind_max,
                         full_data_set.wind_direction,
-                        full_data_set.percipitation,
+                        full_data_set.precipitation,
                         full_data_set.air_pressure
                     ));
                 }
