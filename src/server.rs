@@ -96,6 +96,11 @@ fn write_csv_data(data: &StationDataType, file_name: &str) -> Result<()> {
     Ok(())
 }
 
+fn write_to_db(db_pool: &mysql::Pool, station_folder: &str, data: &StationDataType) -> Result<()> {
+
+    Ok(())
+}
+
 fn port_to_station(port: u16) -> String{
     match port {
         2100 => "2100_Na".to_string(),
@@ -109,7 +114,7 @@ fn port_to_station(port: u16) -> String{
 
 fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
     all_data_file: &Arc<Mutex<String>>, monthly_data_folder: &Arc<Mutex<String>>,
-    pool: &Arc<Mutex<mysql::Pool>>) -> Result<()> {
+    db_pool: &Arc<Mutex<mysql::Pool>>) -> Result<()> {
     info!("Client socket address: {}", remote_addr);
 
     let local_addr = try!(stream.local_addr());
@@ -165,7 +170,12 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
                     },
                     Err(e) => info!("Mutex (poison) error (monthly_data_folder): {}", e)
                 }
-
+                match db_pool.lock() {
+                    Ok(db_pool) => {
+                        try!(write_to_db(&db_pool, &station_folder, &parsed_data));
+                    },
+                    Err(e) => info!("Mutex (poison) error (db_pool): {}", e)
+                }
             },
             Err(e) => {
                 info!("Could not parse data: {}", e);
@@ -202,13 +212,13 @@ pub fn start_service(config: Configuration) {
         }
     }
 
-    let mut builder = mysql::OptsBuilder::new();
-    builder.ip_or_hostname(Some(config.hostname))
+    let mut db_builder = mysql::OptsBuilder::new();
+    db_builder.ip_or_hostname(Some(config.hostname))
            .db_name(Some(config.db_name))
            .user(Some(config.username))
            .pass(Some(config.password));
-    let pool = match mysql::Pool::new(builder) {
-        Ok(pool) => pool,
+    let db_pool = match mysql::Pool::new(db_builder) {
+        Ok(db_pool) => db_pool,
         Err(e) => {
             info!("Database error: {}", e);
             process::exit(1);
@@ -217,12 +227,12 @@ pub fn start_service(config: Configuration) {
 
     let all_data_file = Arc::new(Mutex::new(config.all_data_file.clone()));
     let monthly_data_folder = Arc::new(Mutex::new(config.monthly_data_folder.clone()));
-    let cloned_pool = Arc::new(Mutex::new(pool));
+    let db_pool = Arc::new(Mutex::new(db_pool));
 
     for listener in listeners {
         let all_data_file = all_data_file.clone();
         let monthly_data_folder = monthly_data_folder.clone();
-        let cloned_pool = cloned_pool.clone();
+        let cloned_pool = db_pool.clone();
         spawn(move|| {
             loop {
                 let result = listener.accept();
@@ -236,4 +246,52 @@ pub fn start_service(config: Configuration) {
             }
         });
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use time::strptime;
+    use data_parser::StationDataType;
+    use time::{now};
+    use mysql;
+
+    use super::{write_csv_data, write_xml_data, write_to_db, port_to_station};
+
+    #[test]
+    fn test_port_to_station() {
+        assert_eq!(port_to_station(2100), "2100_Na");
+        assert_eq!(port_to_station(2101), "2101_SG");
+        assert_eq!(port_to_station(2102), "2102_PdA");
+        assert_eq!(port_to_station(2103), "2103_LC");
+        assert_eq!(port_to_station(2104), "2104_Tue");
+        assert_eq!(port_to_station(2105), "unknown");
+    }
+
+    #[test]
+    fn test_write_csv_data1() {
+        assert!(write_csv_data(&StationDataType::SingleData(strptime("2016-06-12 00:00:00",
+        "%Y-%m-%d %H:%M:%S").unwrap(), 12.73), "/does_not_work/does_not_work.csv").is_err());
+    }
+
+
+    #[test]
+    fn test_write_xml_data1() {
+        assert!(write_xml_data(now(), 0, &StationDataType::SingleData(strptime("2016-06-12 00:00:00",
+        "%Y-%m-%d %H:%M:%S").unwrap(), 12.73), "/does_not_work/does_not_work.csv").is_err());
+    }
+
+    #[test]
+    fn test_write_to_db1() {
+        let mut db_builder = mysql::OptsBuilder::new();
+        db_builder.ip_or_hostname(Some("localhost"))
+                  .tcp_port(3306)
+                  .user(Some("test"))
+                  .pass(Some("test"))
+                  .db_name(Some("test_weatherstation"));
+        let pool = mysql::Pool::new(db_builder).unwrap();
+
+        assert!(write_to_db(&pool, "2101_SG", &StationDataType::SingleData(strptime("2016-06-12 00:00:00",
+        "%Y-%m-%d %H:%M:%S").unwrap(), 12.73)).is_ok());
+    }
+
 }

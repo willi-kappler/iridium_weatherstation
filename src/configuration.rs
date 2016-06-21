@@ -145,7 +145,12 @@ mod tests {
         assert_eq!(setup_configuration(), Configuration{ ports: vec![2001, 2002, 2003],
             log_level: "info".to_string(),
             all_data_file: "all_data".to_string(),
-            monthly_data_folder: "monthly".to_string()});
+            monthly_data_folder: "monthly".to_string(),
+            hostname: "localhost".to_string(),
+            db_name: "weatherstation".to_string(),
+            username: "root".to_string(),
+            password: "none".to_string()
+        });
     }
 
     #[test]

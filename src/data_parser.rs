@@ -107,7 +107,7 @@ pub fn parse_text_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
                     let line_elements: Vec<&str> = line_str.split(',').map(|elem| elem.trim_matches(&remove_junk)).collect();
                     let time_stamp = strptime(line_elements[0].trim_matches(&remove_junk), "%Y-%m-%d %H:%M:%S").unwrap();
 
-                    if line_elements.len() == 3 { // Only battery
+                    if line_elements.len() == 3 { // Only battery voltage
                         let battery_voltage = line_elements[1].parse::<f64>();
 
                         match battery_voltage {
