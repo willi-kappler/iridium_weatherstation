@@ -5,6 +5,7 @@
 #[macro_use] extern crate log;
 #[macro_use] extern crate clap;
 #[macro_use] extern crate quick_error;
+#[macro_use] extern crate mysql;
 
 extern crate flexi_logger;
 extern crate time;

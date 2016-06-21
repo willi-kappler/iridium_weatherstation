@@ -15,3 +15,8 @@ clap = "2.4"
 quick-error = "1.1"
 regex = "0.1"
 # half = "0.1.0"
+
+[dependencies.mysql]
+version = "*"
+default-features = false
+features = ["socket"]

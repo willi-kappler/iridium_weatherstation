@@ -10,6 +10,8 @@ use std::fs::OpenOptions;
 use std::io::BufWriter;
 use std::io::Result;
 use time::{now, Tm};
+use mysql;
+use std::process;
 
 // Internal modules:
 use configuration::{Configuration, HEADER_LENGTH};
@@ -106,7 +108,8 @@ fn port_to_station(port: u16) -> String{
 }
 
 fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
-    all_data_file: &Arc<Mutex<String>>, monthly_data_folder: &Arc<Mutex<String>>) -> Result<()> {
+    all_data_file: &Arc<Mutex<String>>, monthly_data_folder: &Arc<Mutex<String>>,
+    pool: &Arc<Mutex<mysql::Pool>>) -> Result<()> {
     info!("Client socket address: {}", remote_addr);
 
     let local_addr = try!(stream.local_addr());
@@ -192,23 +195,41 @@ pub fn start_service(config: Configuration) {
                 info!("Create listener for port {}", port);
                 listeners.push(listener);
             },
-            Err(e) => info!("Network error: {}", e)
+            Err(e) => {
+                info!("Network error: {}", e);
+                process::exit(1);
+            }
         }
     }
 
+    let mut builder = mysql::OptsBuilder::new();
+    builder.ip_or_hostname(Some(config.hostname))
+           .db_name(Some(config.db_name))
+           .user(Some(config.username))
+           .pass(Some(config.password));
+    let pool = match mysql::Pool::new(builder) {
+        Ok(pool) => pool,
+        Err(e) => {
+            info!("Database error: {}", e);
+            process::exit(1);
+        }
+    };
+
     let all_data_file = Arc::new(Mutex::new(config.all_data_file.clone()));
     let monthly_data_folder = Arc::new(Mutex::new(config.monthly_data_folder.clone()));
+    let cloned_pool = Arc::new(Mutex::new(pool));
 
     for listener in listeners {
         let all_data_file = all_data_file.clone();
         let monthly_data_folder = monthly_data_folder.clone();
+        let cloned_pool = cloned_pool.clone();
         spawn(move|| {
             loop {
                 let result = listener.accept();
                 if let Ok(result) = result {
                     let (mut stream, addr) = result;
                     if let Err(io_error) = handle_client(&mut stream, &addr,
-                            &all_data_file, &monthly_data_folder) {
+                            &all_data_file, &monthly_data_folder, &cloned_pool) {
                         info!("IOError: {}", io_error);
                     }
                 }

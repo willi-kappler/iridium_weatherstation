@@ -17,7 +17,12 @@ pub struct Configuration {
     /// File that contains all the data
     pub all_data_file: String,
     /// Folder that contains individual data, monthly basis
-    pub monthly_data_folder: String
+    pub monthly_data_folder: String,
+    /// Connection properties for the the MySQL database
+    pub hostname: String,
+    pub db_name: String,
+    pub username: String,
+    pub password: String
 }
 
 fn default_ports() -> Vec<u16> {
@@ -60,7 +65,31 @@ pub fn setup_configuration() -> Configuration {
         .arg(
             Arg::with_name("loglevel")
             .long("loglevel")
-            .help("specify log level: error, info or debug. Default: info")
+            .help("Specify log level: error, info or debug. Default: info")
+            .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("hostname")
+            .long("hostname")
+            .help("The hostname for the MySQL database connection")
+            .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("db_name")
+            .long("db_name")
+            .help("The database name for the MySQL database connection")
+            .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("username")
+            .long("username")
+            .help("The username for the MySQL database connection")
+            .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("password")
+            .long("password")
+            .help("The password for the MySQL database connection")
             .takes_value(true)
         )
         .get_matches();
@@ -75,11 +104,35 @@ pub fn setup_configuration() -> Configuration {
             _ => "info"
         };
 
+        let hostname = match matches.value_of("hostname") {
+            Some(hostname) => hostname,
+            _ => "localhost"
+        };
+
+        let db_name = match matches.value_of("db_name") {
+            Some(db_name) => db_name,
+            _ => "weatherstation"
+        };
+
+        let username = match matches.value_of("username") {
+            Some(username) => username,
+            _ => "root"
+        };
+
+        let password = match matches.value_of("password") {
+            Some(password) => password,
+            _ => "none"
+        };
+
         Configuration {
             ports: ports,
             log_level: log_level.to_string(),
             all_data_file: "all_data".to_string(),
-            monthly_data_folder: "monthly".to_string()
+            monthly_data_folder: "monthly".to_string(),
+            hostname: hostname.to_string(),
+            db_name: db_name.to_string(),
+            username: username.to_string(),
+            password: password.to_string()
         }
 }
 
