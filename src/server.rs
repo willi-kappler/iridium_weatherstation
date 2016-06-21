@@ -7,18 +7,30 @@ use std::thread::spawn;
 use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
 use std::fs::OpenOptions;
-use std::io::BufWriter;
-use std::io::Result;
+use std::io;
 use time::{now, Tm};
 use mysql;
+use mysql::{OptsBuilder, Pool, Value};
 use std::process;
 
 // Internal modules:
 use configuration::{Configuration, HEADER_LENGTH};
 use data_parser::{parse_text_data, StationDataType};
 
-fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &str) -> Result<()> {
-    let mut file_handle = BufWriter::new(try!(OpenOptions::new()
+quick_error! {
+    #[derive(Debug)]
+    enum StoreDataError {
+        IOError(error: io::Error) {
+            from()
+        }
+        MySQLError(error: mysql::Error) {
+            from()
+        }
+    }
+}
+
+fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &str) -> Result<(), StoreDataError> {
+    let mut file_handle = io::BufWriter::new(try!(OpenOptions::new()
         .write(true).create(true).append(true).open(format!("{}.xml", file_name))));
 
     let date_time_format = "%Y-%m-%d %H:%M:%S";
@@ -62,8 +74,8 @@ fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &s
     Ok(())
 }
 
-fn write_csv_data(data: &StationDataType, file_name: &str) -> Result<()> {
-    let mut file_handle = BufWriter::new(try!(OpenOptions::new()
+fn write_csv_data(data: &StationDataType, file_name: &str) -> Result<(), StoreDataError> {
+    let mut file_handle = io::BufWriter::new(try!(OpenOptions::new()
         .write(true).create(true).append(true).open(format!("{}.csv", file_name))));
 
         let date_time_format = "%Y-%m-%d %H:%M:%S";
@@ -96,7 +108,25 @@ fn write_csv_data(data: &StationDataType, file_name: &str) -> Result<()> {
     Ok(())
 }
 
-fn write_to_db(db_pool: &mysql::Pool, station_folder: &str, data: &StationDataType) -> Result<()> {
+fn write_to_db(db_pool: &Pool, station_folder: &str, data: &StationDataType) -> Result<(), StoreDataError> {
+    let date_time_format = "%Y-%m-%d %H:%M:%S";
+
+    match data {
+        &StationDataType::SingleData(time_stamp_tm, voltage) => {
+            if let Ok(time_stamp) = time_stamp_tm.strftime(&date_time_format) {
+                let time_stamp = format!("{}", time_stamp);
+                try!(db_pool.prep_exec("insert into battery_data (timestamp, station,
+                    battery_voltage) values (:timestamp, :station, :battery_voltage)",
+                    (Value::from(time_stamp), Value::from(station_folder), Value::from(voltage))));
+            }
+        },
+        &StationDataType::MultipleData(ref full_data_set) => {
+            if let Ok(time_stamp) = full_data_set.time_stamp.strftime(&date_time_format) {
+                // TODO
+            }
+        }
+    }
+
 
     Ok(())
 }
@@ -114,7 +144,7 @@ fn port_to_station(port: u16) -> String{
 
 fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
     all_data_file: &Arc<Mutex<String>>, monthly_data_folder: &Arc<Mutex<String>>,
-    db_pool: &Arc<Mutex<mysql::Pool>>) -> Result<()> {
+    db_pool: &Arc<Mutex<Pool>>) -> Result<(), StoreDataError> {
     info!("Client socket address: {}", remote_addr);
 
     let local_addr = try!(stream.local_addr());
@@ -212,12 +242,12 @@ pub fn start_service(config: Configuration) {
         }
     }
 
-    let mut db_builder = mysql::OptsBuilder::new();
+    let mut db_builder = OptsBuilder::new();
     db_builder.ip_or_hostname(Some(config.hostname))
            .db_name(Some(config.db_name))
            .user(Some(config.username))
            .pass(Some(config.password));
-    let db_pool = match mysql::Pool::new(db_builder) {
+    let db_pool = match Pool::new(db_builder) {
         Ok(db_pool) => db_pool,
         Err(e) => {
             info!("Database error: {}", e);
@@ -238,9 +268,9 @@ pub fn start_service(config: Configuration) {
                 let result = listener.accept();
                 if let Ok(result) = result {
                     let (mut stream, addr) = result;
-                    if let Err(io_error) = handle_client(&mut stream, &addr,
+                    if let Err(data_error) = handle_client(&mut stream, &addr,
                             &all_data_file, &monthly_data_folder, &cloned_pool) {
-                        info!("IOError: {}", io_error);
+                        info!("Store Data Error: {}", data_error);
                     }
                 }
             }
@@ -290,8 +320,10 @@ mod tests {
                   .db_name(Some("test_weatherstation"));
         let pool = mysql::Pool::new(db_builder).unwrap();
 
-        assert!(write_to_db(&pool, "2101_SG", &StationDataType::SingleData(strptime("2016-06-12 00:00:00",
+        assert!(write_to_db(&pool, "test1", &StationDataType::SingleData(strptime("2016-06-12 00:00:00",
         "%Y-%m-%d %H:%M:%S").unwrap(), 12.73)).is_ok());
+        // TODO: retrieve values, remove test data from database
+
     }
 
 }
