@@ -10,6 +10,7 @@
 extern crate flexi_logger;
 extern crate time;
 extern crate regex;
+extern crate chrono;
 
 // Internal modules
 pub mod configuration;

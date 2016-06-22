@@ -9,8 +9,10 @@ use std::sync::{Arc, Mutex};
 use std::fs::OpenOptions;
 use std::io;
 use time::{now, Tm};
+use time;
 use mysql;
 use mysql::{OptsBuilder, Pool, Value};
+use mysql::conn::QueryResult;
 use std::process;
 
 // Internal modules:
@@ -20,16 +22,13 @@ use data_parser::{parse_text_data, StationDataType};
 quick_error! {
     #[derive(Debug)]
     enum StoreDataError {
-        IOError(error: io::Error) {
-            from()
-        }
-        MySQLError(error: mysql::Error) {
-            from()
-        }
+        IOError(error: io::Error) { from() }
+        MySQLError(error: mysql::Error) { from() }
+        TimeParseError(error: time::ParseError) { from() }
     }
 }
 
-fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &str) -> Result<(), StoreDataError> {
+fn write_xml_data<'a>(tm: Tm, local_port: u16, data: &StationDataType, file_name: &str) -> Result<Option<QueryResult<'a>>, StoreDataError> {
     let mut file_handle = io::BufWriter::new(try!(OpenOptions::new()
         .write(true).create(true).append(true).open(format!("{}.xml", file_name))));
 
@@ -42,39 +41,35 @@ fn write_xml_data(tm: Tm, local_port: u16, data: &StationDataType, file_name: &s
     try!(write!(file_handle, "<date_time>{}</date_time>\n", &current_date_time));
     try!(write!(file_handle, "<data>\n"));
 
-    // try!(write!(file_handle, "{:?}\n", data));
-
     match data {
         &StationDataType::SingleData(time_stamp_tm, voltage) => {
-            if let Ok(time_stamp) = time_stamp_tm.strftime(&date_time_format) {
-                try!(write!(file_handle, "    <time_stamp>{}</time_stamp>\n", time_stamp));
-                try!(write!(file_handle, "    <voltage>{}</voltage>\n", voltage));
-            }
+            let time_stamp = try!(time_stamp_tm.strftime(&date_time_format));
+            try!(write!(file_handle, "    <time_stamp>{}</time_stamp>\n", time_stamp));
+            try!(write!(file_handle, "    <voltage>{}</voltage>\n", voltage));
         },
         &StationDataType::MultipleData(ref full_data_set) => {
-            if let Ok(time_stamp) = full_data_set.time_stamp.strftime(&date_time_format) {
-                try!(write!(file_handle, "    <time_stamp>{}</time_stamp>\n", time_stamp));
-                try!(write!(file_handle, "    <air_temperature>{}</air_temperature>\n", full_data_set.air_temperature));
-                try!(write!(file_handle, "    <air_relative_humidity>{}</air_relative_humidity>\n", full_data_set.air_relative_humidity));
-                try!(write!(file_handle, "    <solar_radiation>{}</solar_radiation>\n", full_data_set.solar_radiation));
-                try!(write!(file_handle, "    <soil_water_content>{}</soil_water_content>\n", full_data_set.soil_water_content));
-                try!(write!(file_handle, "    <soil_temperature>{}</soil_temperature>\n", full_data_set.soil_temperature));
-                try!(write!(file_handle, "    <wind_speed>{}</wind_speed>\n", full_data_set.wind_speed));
-                try!(write!(file_handle, "    <wind_max>{}</wind_max>\n", full_data_set.wind_max));
-                try!(write!(file_handle, "    <wind_direction>{}</wind_direction>\n", full_data_set.wind_direction));
-                try!(write!(file_handle, "    <precipitation>{}</precipitation>\n", full_data_set.precipitation));
-                try!(write!(file_handle, "    <air_pressure>{}</air_pressure>\n", full_data_set.air_pressure));
-            }
+            let time_stamp = try!(full_data_set.time_stamp.strftime(&date_time_format));
+            try!(write!(file_handle, "    <time_stamp>{}</time_stamp>\n", time_stamp));
+            try!(write!(file_handle, "    <air_temperature>{}</air_temperature>\n", full_data_set.air_temperature));
+            try!(write!(file_handle, "    <air_relative_humidity>{}</air_relative_humidity>\n", full_data_set.air_relative_humidity));
+            try!(write!(file_handle, "    <solar_radiation>{}</solar_radiation>\n", full_data_set.solar_radiation));
+            try!(write!(file_handle, "    <soil_water_content>{}</soil_water_content>\n", full_data_set.soil_water_content));
+            try!(write!(file_handle, "    <soil_temperature>{}</soil_temperature>\n", full_data_set.soil_temperature));
+            try!(write!(file_handle, "    <wind_speed>{}</wind_speed>\n", full_data_set.wind_speed));
+            try!(write!(file_handle, "    <wind_max>{}</wind_max>\n", full_data_set.wind_max));
+            try!(write!(file_handle, "    <wind_direction>{}</wind_direction>\n", full_data_set.wind_direction));
+            try!(write!(file_handle, "    <precipitation>{}</precipitation>\n", full_data_set.precipitation));
+            try!(write!(file_handle, "    <air_pressure>{}</air_pressure>\n", full_data_set.air_pressure));
         }
     }
 
     try!(write!(file_handle, "</data>\n"));
     try!(write!(file_handle, "</measure>\n\n"));
 
-    Ok(())
+    Ok(None)
 }
 
-fn write_csv_data(data: &StationDataType, file_name: &str) -> Result<(), StoreDataError> {
+fn write_csv_data<'a>(data: &StationDataType, file_name: &str) -> Result<Option<QueryResult<'a>>, StoreDataError> {
     let mut file_handle = io::BufWriter::new(try!(OpenOptions::new()
         .write(true).create(true).append(true).open(format!("{}.csv", file_name))));
 
@@ -82,53 +77,51 @@ fn write_csv_data(data: &StationDataType, file_name: &str) -> Result<(), StoreDa
 
         match data {
             &StationDataType::SingleData(time_stamp_tm, voltage) => {
-                if let Ok(time_stamp) = time_stamp_tm.strftime(&date_time_format) {
-                    try!(write!(file_handle, "\"{}\", {}\n", time_stamp, voltage));
-                }
+                let time_stamp = try!(time_stamp_tm.strftime(&date_time_format));
+                try!(write!(file_handle, "\"{}\", {}\n", time_stamp, voltage));
             },
             &StationDataType::MultipleData(ref full_data_set) => {
-                if let Ok(time_stamp) = full_data_set.time_stamp.strftime(&date_time_format) {
-                    try!(write!(file_handle, "\"{}\", {}, {}, {}, {}, {}, {}, {}, {}, {}, {}\n",
-                        time_stamp,
-                        full_data_set.air_temperature,
-                        full_data_set.air_relative_humidity,
-                        full_data_set.solar_radiation,
-                        full_data_set.soil_water_content,
-                        full_data_set.soil_temperature,
-                        full_data_set.wind_speed,
-                        full_data_set.wind_max,
-                        full_data_set.wind_direction,
-                        full_data_set.precipitation,
-                        full_data_set.air_pressure
-                    ));
-                }
+                let time_stamp = try!(full_data_set.time_stamp.strftime(&date_time_format));
+                try!(write!(file_handle, "\"{}\", {}, {}, {}, {}, {}, {}, {}, {}, {}, {}\n",
+                    time_stamp,
+                    full_data_set.air_temperature,
+                    full_data_set.air_relative_humidity,
+                    full_data_set.solar_radiation,
+                    full_data_set.soil_water_content,
+                    full_data_set.soil_temperature,
+                    full_data_set.wind_speed,
+                    full_data_set.wind_max,
+                    full_data_set.wind_direction,
+                    full_data_set.precipitation,
+                    full_data_set.air_pressure
+                ));
             }
         }
 
-    Ok(())
+    Ok(None)
 }
 
-fn write_to_db(db_pool: &Pool, station_folder: &str, data: &StationDataType) -> Result<(), StoreDataError> {
+fn write_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType) -> Result<Option<QueryResult<'a>>, StoreDataError> {
     let date_time_format = "%Y-%m-%d %H:%M:%S";
 
     match data {
         &StationDataType::SingleData(time_stamp_tm, voltage) => {
-            if let Ok(time_stamp) = time_stamp_tm.strftime(&date_time_format) {
-                let time_stamp = format!("{}", time_stamp);
-                try!(db_pool.prep_exec("insert into battery_data (timestamp, station,
-                    battery_voltage) values (:timestamp, :station, :battery_voltage)",
-                    (Value::from(time_stamp), Value::from(station_folder), Value::from(voltage))));
-            }
+            let time_stamp = try!(time_stamp_tm.strftime(&date_time_format));
+            let time_stamp = format!("{}", time_stamp);
+            let result = try!(db_pool.prep_exec("insert into battery_data (timestamp, station,
+                battery_voltage) values (:timestamp, :station, :battery_voltage)",
+                (Value::from(time_stamp), Value::from(station_folder), Value::from(voltage))));
+            return Ok(Some(result));
         },
         &StationDataType::MultipleData(ref full_data_set) => {
-            if let Ok(time_stamp) = full_data_set.time_stamp.strftime(&date_time_format) {
-                // TODO
-            }
+            let time_stamp = try!(full_data_set.time_stamp.strftime(&date_time_format));
+            let time_stamp = format!("{}", time_stamp);
+            // TODO
         }
     }
 
 
-    Ok(())
+    Ok(None)
 }
 
 fn port_to_station(port: u16) -> String{
@@ -142,9 +135,9 @@ fn port_to_station(port: u16) -> String{
     }
 }
 
-fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
+fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
     all_data_file: &Arc<Mutex<String>>, monthly_data_folder: &Arc<Mutex<String>>,
-    db_pool: &Arc<Mutex<Pool>>) -> Result<(), StoreDataError> {
+    db_pool: &Arc<Mutex<Pool>>) -> Result<Option<QueryResult<'a>>, StoreDataError> {
     info!("Client socket address: {}", remote_addr);
 
     let local_addr = try!(stream.local_addr());
@@ -223,7 +216,7 @@ fn handle_client(stream: &mut TcpStream, remote_addr: &SocketAddr,
 
     info!("handle_client finished");
 
-    Ok(())
+    Ok(None)
 }
 
 pub fn start_service(config: Configuration) {
@@ -268,9 +261,12 @@ pub fn start_service(config: Configuration) {
                 let result = listener.accept();
                 if let Ok(result) = result {
                     let (mut stream, addr) = result;
-                    if let Err(data_error) = handle_client(&mut stream, &addr,
+                    match handle_client(&mut stream, &addr,
                             &all_data_file, &monthly_data_folder, &cloned_pool) {
-                        info!("Store Data Error: {}", data_error);
+                        Ok(None) => {},
+                        Ok(Some(query_result)) => { info!("Database insert successfull: {}, {}",
+                            query_result.affected_rows(),  query_result.last_insert_id()) },
+                        Err(data_error) => { info!("Store Data Error: {}", data_error) }
                     }
                 }
             }
@@ -280,10 +276,11 @@ pub fn start_service(config: Configuration) {
 
 #[cfg(test)]
 mod tests {
-    use time::strptime;
+    use time::{strptime};
     use data_parser::StationDataType;
     use time::{now};
-    use mysql;
+    use mysql::{Value, Pool, OptsBuilder};
+    use chrono::naive::datetime::NaiveDateTime;
 
     use super::{write_csv_data, write_xml_data, write_to_db, port_to_station};
 
@@ -312,17 +309,44 @@ mod tests {
 
     #[test]
     fn test_write_to_db1() {
-        let mut db_builder = mysql::OptsBuilder::new();
+        let mut db_builder = OptsBuilder::new();
         db_builder.ip_or_hostname(Some("localhost"))
                   .tcp_port(3306)
                   .user(Some("test"))
                   .pass(Some("test"))
                   .db_name(Some("test_weatherstation"));
-        let pool = mysql::Pool::new(db_builder).unwrap();
+        let pool = Pool::new(db_builder).unwrap();
 
-        assert!(write_to_db(&pool, "test1", &StationDataType::SingleData(strptime("2016-06-12 00:00:00",
-        "%Y-%m-%d %H:%M:%S").unwrap(), 12.73)).is_ok());
-        // TODO: retrieve values, remove test data from database
+        let query_result = write_to_db(&pool, "test1", &StationDataType::SingleData(strptime("2016-06-12 00:00:00",
+        "%Y-%m-%d %H:%M:%S").unwrap(), 12.73));
+        assert!(query_result.is_ok());
+        let query_result = query_result.unwrap();
+        assert!(query_result.is_some());
+        let query_result = query_result.unwrap();
+        let affected_rows = query_result.affected_rows();
+        assert_eq!(affected_rows, 1);
+        let last_insert_id = query_result.last_insert_id();
+        let select_result = pool.prep_exec("select * from battery_data where id=(:id)", (Value::from(last_insert_id),));
+        assert!(select_result.is_ok());
+        let select_result = select_result.unwrap();
+        for opt_item in select_result {
+            assert!(opt_item.is_ok());
+            let mut row_item = opt_item.unwrap();
+            assert_eq!(row_item.len(), 4);
+            let row_id: Option<u64> = row_item.get(0);
+            assert!(row_id.is_some());
+            assert_eq!(row_id.unwrap(), last_insert_id);
+            println!("last_insert_id: {}", last_insert_id);
+            let row_timestamp: Option<NaiveDateTime> = row_item.get(1);
+            assert!(row_timestamp.is_some());
+            println!("row_timestamp: {}", row_timestamp.unwrap());
+            let time_stamp: NaiveDateTime = row_timestamp.unwrap();
+            assert_eq!(time_stamp, NaiveDateTime::parse_from_str("2016-06-12 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap());
+
+        }
+
+        // TODO: remove test data from database
+
 
     }
 
