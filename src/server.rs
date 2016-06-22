@@ -319,35 +319,25 @@ mod tests {
 
         let query_result = write_to_db(&pool, "test1", &StationDataType::SingleData(strptime("2016-06-12 00:00:00",
         "%Y-%m-%d %H:%M:%S").unwrap(), 12.73));
-        assert!(query_result.is_ok());
-        let query_result = query_result.unwrap();
-        assert!(query_result.is_some());
-        let query_result = query_result.unwrap();
+        let query_result = query_result.unwrap().unwrap();
         let affected_rows = query_result.affected_rows();
         assert_eq!(affected_rows, 1);
         let last_insert_id = query_result.last_insert_id();
-        let select_result = pool.prep_exec("select * from battery_data where id=(:id)", (Value::from(last_insert_id),));
-        assert!(select_result.is_ok());
-        let select_result = select_result.unwrap();
+
+        let select_result = pool.prep_exec("select * from battery_data where id=(:id)", (Value::from(last_insert_id),)).unwrap();
         for opt_item in select_result {
-            assert!(opt_item.is_ok());
             let mut row_item = opt_item.unwrap();
             assert_eq!(row_item.len(), 4);
             let row_id: Option<u64> = row_item.get(0);
-            assert!(row_id.is_some());
             assert_eq!(row_id.unwrap(), last_insert_id);
-            println!("last_insert_id: {}", last_insert_id);
             let row_timestamp: Option<NaiveDateTime> = row_item.get(1);
-            assert!(row_timestamp.is_some());
-            println!("row_timestamp: {}", row_timestamp.unwrap());
             let time_stamp: NaiveDateTime = row_timestamp.unwrap();
             assert_eq!(time_stamp, NaiveDateTime::parse_from_str("2016-06-12 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap());
 
         }
 
-        // TODO: remove test data from database
-
-
+        let delete_result = pool.prep_exec("delete from battery_data where station='test1'", ()).unwrap();
+        assert_eq!(delete_result.affected_rows(), 1);
     }
 
 }
