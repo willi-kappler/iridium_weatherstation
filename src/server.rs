@@ -114,10 +114,10 @@ fn write_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType)
         },
         &StationDataType::MultipleData(ref full_data_set) => {
             let timestamp = try!(full_data_set.timestamp.strftime(&datetime_format));
-            let result = try!(db_pool.prep_exec("insert into battery_data (
+            let result = try!(db_pool.prep_exec("insert into multiple_data (
                     timestamp,
                     station,
-                    air_pressure,
+                    air_temperature,
                     air_relative_humidity,
                     solar_radiation,
                     soil_water_content,
@@ -130,7 +130,7 @@ fn write_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType)
                 ) values (
                     :timestamp,
                     :station,
-                    :air_pressure,
+                    :air_temperature,
                     :air_relative_humidity,
                     :solar_radiation,
                     :soil_water_content,
@@ -143,7 +143,7 @@ fn write_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType)
                 )", (
                     Value::from(timestamp.to_string()),
                     Value::from(station_folder),
-                    Value::from(full_data_set.air_pressure),
+                    Value::from(full_data_set.air_temperature),
                     Value::from(full_data_set.air_relative_humidity),
                     Value::from(full_data_set.solar_radiation),
                     Value::from(full_data_set.soil_water_content),
@@ -315,7 +315,7 @@ pub fn start_service(config: Configuration) {
 #[cfg(test)]
 mod tests {
     use time::{strptime};
-    use data_parser::StationDataType;
+    use data_parser::{StationDataType, WeatherStationData};
     use time::{now};
     use mysql::{Value, Pool, OptsBuilder};
     use chrono::naive::datetime::NaiveDateTime;
@@ -355,7 +355,7 @@ mod tests {
                   .db_name(Some("test_weatherstation"));
         let pool = Pool::new(db_builder).unwrap();
 
-        let query_result = write_to_db(&pool, "test1", &StationDataType::SingleData(strptime("2016-06-12 00:00:00",
+        let query_result = write_to_db(&pool, "test1", &StationDataType::SingleData(strptime("2016-06-12 12:13:14",
         "%Y-%m-%d %H:%M:%S").unwrap(), 12.73));
         let query_result = query_result.unwrap().unwrap();
         let affected_rows = query_result.affected_rows();
@@ -369,7 +369,7 @@ mod tests {
             let row_id: u64 = row_item.get(0).unwrap();
             assert_eq!(row_id, last_insert_id);
             let row_timestamp: NaiveDateTime = row_item.get(1).unwrap();
-            assert_eq!(row_timestamp, NaiveDateTime::parse_from_str("2016-06-12 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap());
+            assert_eq!(row_timestamp, NaiveDateTime::parse_from_str("2016-06-12 12:13:14", "%Y-%m-%d %H:%M:%S").unwrap());
             let row_station: String = row_item.get(2).unwrap();
             assert_eq!(row_station, "test1");
             let row_voltage: f64 = row_item.get(3).unwrap();
@@ -379,5 +379,53 @@ mod tests {
         let delete_result = pool.prep_exec("delete from battery_data where station='test1'", ()).unwrap();
         assert_eq!(delete_result.affected_rows(), 1);
     }
+
+    #[test]
+    fn test_write_to_db2() {
+        let mut db_builder = OptsBuilder::new();
+        db_builder.ip_or_hostname(Some("localhost"))
+                  .tcp_port(3306)
+                  .user(Some("test"))
+                  .pass(Some("test"))
+                  .db_name(Some("test_weatherstation"));
+        let pool = Pool::new(db_builder).unwrap();
+
+        let query_result = write_to_db(&pool, "test2", &StationDataType::MultipleData(WeatherStationData{
+            timestamp: strptime("2016-06-15 15:16:17", "%Y-%m-%d %H:%M:%S").unwrap(),
+            air_temperature: 18.15,
+            air_relative_humidity: 65.31,
+            solar_radiation: 620.4,
+            soil_water_content: 0.056,
+            soil_temperature: 16.25,
+            wind_speed: 4.713,
+            wind_max: 9.5,
+            wind_direction: 257.9,
+            precipitation: 0.0,
+            air_pressure: 981.0
+        }));
+        let query_result = query_result.unwrap().unwrap();
+        let affected_rows = query_result.affected_rows();
+        assert_eq!(affected_rows, 1);
+        let last_insert_id = query_result.last_insert_id();
+
+        let select_result = pool.prep_exec("select * from multiple_data where id=(:id)", (Value::from(last_insert_id),)).unwrap();
+        for opt_item in select_result {
+            let mut row_item = opt_item.unwrap();
+            assert_eq!(row_item.len(), 13);
+            let row_id: u64 = row_item.get(0).unwrap();
+            assert_eq!(row_id, last_insert_id);
+            let row_timestamp: NaiveDateTime = row_item.get(1).unwrap();
+            assert_eq!(row_timestamp, NaiveDateTime::parse_from_str("2016-06-15 15:16:17", "%Y-%m-%d %H:%M:%S").unwrap());
+            let row_station: String = row_item.get(2).unwrap();
+            assert_eq!(row_station, "test2");
+
+            // let row_voltage: f64 = row_item.get(3).unwrap();
+            // assert_eq!(row_voltage, 12.73);
+        }
+
+        let delete_result = pool.prep_exec("delete from multiple_data where station='test2'", ()).unwrap();
+        assert_eq!(delete_result.affected_rows(), 1);
+    }
+
 
 }
