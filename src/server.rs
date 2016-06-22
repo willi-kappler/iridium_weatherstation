@@ -32,24 +32,24 @@ fn write_xml_data<'a>(tm: Tm, local_port: u16, data: &StationDataType, file_name
     let mut file_handle = io::BufWriter::new(try!(OpenOptions::new()
         .write(true).create(true).append(true).open(format!("{}.xml", file_name))));
 
-    let date_time_format = "%Y-%m-%d %H:%M:%S";
+    let datetime_format = "%Y-%m-%d %H:%M:%S";
 
-    let current_date_time = tm.strftime(&date_time_format).unwrap();
+    let current_datetime = tm.strftime(&datetime_format).unwrap();
 
     try!(write!(file_handle, "<measure>\n"));
     try!(write!(file_handle, "<port>{}</port>\n", local_port));
-    try!(write!(file_handle, "<date_time>{}</date_time>\n", &current_date_time));
+    try!(write!(file_handle, "<datetime>{}</datetime>\n", &current_datetime));
     try!(write!(file_handle, "<data>\n"));
 
     match data {
-        &StationDataType::SingleData(time_stamp_tm, voltage) => {
-            let time_stamp = try!(time_stamp_tm.strftime(&date_time_format));
-            try!(write!(file_handle, "    <time_stamp>{}</time_stamp>\n", time_stamp));
+        &StationDataType::SingleData(timestamp_tm, voltage) => {
+            let timestamp = try!(timestamp_tm.strftime(&datetime_format));
+            try!(write!(file_handle, "    <timestamp>{}</timestamp>\n", timestamp));
             try!(write!(file_handle, "    <voltage>{}</voltage>\n", voltage));
         },
         &StationDataType::MultipleData(ref full_data_set) => {
-            let time_stamp = try!(full_data_set.time_stamp.strftime(&date_time_format));
-            try!(write!(file_handle, "    <time_stamp>{}</time_stamp>\n", time_stamp));
+            let timestamp = try!(full_data_set.timestamp.strftime(&datetime_format));
+            try!(write!(file_handle, "    <timestamp>{}</timestamp>\n", timestamp));
             try!(write!(file_handle, "    <air_temperature>{}</air_temperature>\n", full_data_set.air_temperature));
             try!(write!(file_handle, "    <air_relative_humidity>{}</air_relative_humidity>\n", full_data_set.air_relative_humidity));
             try!(write!(file_handle, "    <solar_radiation>{}</solar_radiation>\n", full_data_set.solar_radiation));
@@ -73,17 +73,17 @@ fn write_csv_data<'a>(data: &StationDataType, file_name: &str) -> Result<Option<
     let mut file_handle = io::BufWriter::new(try!(OpenOptions::new()
         .write(true).create(true).append(true).open(format!("{}.csv", file_name))));
 
-        let date_time_format = "%Y-%m-%d %H:%M:%S";
+        let datetime_format = "%Y-%m-%d %H:%M:%S";
 
         match data {
-            &StationDataType::SingleData(time_stamp_tm, voltage) => {
-                let time_stamp = try!(time_stamp_tm.strftime(&date_time_format));
-                try!(write!(file_handle, "\"{}\", {}\n", time_stamp, voltage));
+            &StationDataType::SingleData(timestamp_tm, voltage) => {
+                let timestamp = try!(timestamp_tm.strftime(&datetime_format));
+                try!(write!(file_handle, "\"{}\", {}\n", timestamp, voltage));
             },
             &StationDataType::MultipleData(ref full_data_set) => {
-                let time_stamp = try!(full_data_set.time_stamp.strftime(&date_time_format));
+                let timestamp = try!(full_data_set.timestamp.strftime(&datetime_format));
                 try!(write!(file_handle, "\"{}\", {}, {}, {}, {}, {}, {}, {}, {}, {}, {}\n",
-                    time_stamp,
+                    timestamp,
                     full_data_set.air_temperature,
                     full_data_set.air_relative_humidity,
                     full_data_set.solar_radiation,
@@ -102,21 +102,58 @@ fn write_csv_data<'a>(data: &StationDataType, file_name: &str) -> Result<Option<
 }
 
 fn write_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType) -> Result<Option<QueryResult<'a>>, StoreDataError> {
-    let date_time_format = "%Y-%m-%d %H:%M:%S";
+    let datetime_format = "%Y-%m-%d %H:%M:%S";
 
     match data {
-        &StationDataType::SingleData(time_stamp_tm, voltage) => {
-            let time_stamp = try!(time_stamp_tm.strftime(&date_time_format));
-            let time_stamp = format!("{}", time_stamp);
+        &StationDataType::SingleData(timestamp_tm, voltage) => {
+            let timestamp = try!(timestamp_tm.strftime(&datetime_format));
             let result = try!(db_pool.prep_exec("insert into battery_data (timestamp, station,
                 battery_voltage) values (:timestamp, :station, :battery_voltage)",
-                (Value::from(time_stamp), Value::from(station_folder), Value::from(voltage))));
+                (Value::from(timestamp.to_string()), Value::from(station_folder), Value::from(voltage))));
             return Ok(Some(result));
         },
         &StationDataType::MultipleData(ref full_data_set) => {
-            let time_stamp = try!(full_data_set.time_stamp.strftime(&date_time_format));
-            let time_stamp = format!("{}", time_stamp);
-            // TODO
+            let timestamp = try!(full_data_set.timestamp.strftime(&datetime_format));
+            let result = try!(db_pool.prep_exec("insert into battery_data (
+                    timestamp,
+                    station,
+                    air_pressure,
+                    air_relative_humidity,
+                    solar_radiation,
+                    soil_water_content,
+                    soil_temperature,
+                    wind_speed,
+                    wind_max,
+                    wind_direction,
+                    precipitation,
+                    air_pressure
+                ) values (
+                    :timestamp,
+                    :station,
+                    :air_pressure,
+                    :air_relative_humidity,
+                    :solar_radiation,
+                    :soil_water_content,
+                    :soil_temperature,
+                    :wind_speed,
+                    :wind_direction,
+                    :precipitation,
+                    :air_pressure
+                )", (
+                    Value::from(timestamp.to_string()),
+                    Value::from(station_folder),
+                    Value::from(full_data_set.air_pressure),
+                    Value::from(full_data_set.air_relative_humidity),
+                    Value::from(full_data_set.solar_radiation),
+                    Value::from(full_data_set.soil_water_content),
+                    Value::from(full_data_set.soil_temperature),
+                    Value::from(full_data_set.wind_speed),
+                    Value::from(full_data_set.wind_max),
+                    Value::from(full_data_set.wind_direction),
+                    Value::from(full_data_set.precipitation),
+                    Value::from(full_data_set.air_pressure)
+                )));
+            return Ok(Some(result));
         }
     }
 
@@ -328,12 +365,14 @@ mod tests {
         for opt_item in select_result {
             let mut row_item = opt_item.unwrap();
             assert_eq!(row_item.len(), 4);
-            let row_id: Option<u64> = row_item.get(0);
-            assert_eq!(row_id.unwrap(), last_insert_id);
-            let row_timestamp: Option<NaiveDateTime> = row_item.get(1);
-            let time_stamp: NaiveDateTime = row_timestamp.unwrap();
-            assert_eq!(time_stamp, NaiveDateTime::parse_from_str("2016-06-12 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap());
-
+            let row_id: u64 = row_item.get(0).unwrap();
+            assert_eq!(row_id, last_insert_id);
+            let row_timestamp: NaiveDateTime = row_item.get(1).unwrap();
+            assert_eq!(row_timestamp, NaiveDateTime::parse_from_str("2016-06-12 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap());
+            let row_station: String = row_item.get(2).unwrap();
+            assert_eq!(row_station, "test1");
+            let row_voltage: f64 = row_item.get(3).unwrap();
+            assert_eq!(row_voltage, 12.73);
         }
 
         let delete_result = pool.prep_exec("delete from battery_data where station='test1'", ()).unwrap();

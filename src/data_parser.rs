@@ -10,7 +10,7 @@ use regex::Regex;
 /// The actual data sent from each weather station
 #[derive(Debug, Clone, PartialEq)]
 pub struct WeatherStationData {
-    pub time_stamp: Tm,
+    pub timestamp: Tm,
     pub air_temperature: f64,
     pub air_relative_humidity: f64,
     pub solar_radiation: f64,
@@ -62,7 +62,7 @@ impl From<num::ParseFloatError> for ParseError {
 }
 
 /// Parse all other data besides battery voltage
-fn parse_other_data(time_stamp: &Tm, line_elements: &Vec<&str>) -> Result<StationDataType, ParseError> {
+fn parse_other_data(timestamp: &Tm, line_elements: &Vec<&str>) -> Result<StationDataType, ParseError> {
     println!("line_elements: {:?}", line_elements);
 
     let air_temperature = try!(line_elements[1].parse::<f64>());
@@ -77,7 +77,7 @@ fn parse_other_data(time_stamp: &Tm, line_elements: &Vec<&str>) -> Result<Statio
     let air_pressure = try!(line_elements[10].parse::<f64>());
 
     Ok(StationDataType::MultipleData(WeatherStationData{
-        time_stamp: *time_stamp,
+        timestamp: *timestamp,
         air_temperature: air_temperature,
         air_relative_humidity: air_relative_humidity,
         solar_radiation: solar_radiation,
@@ -105,21 +105,21 @@ pub fn parse_text_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
                     // Prepare for parsing, split line at every ','
                     let remove_junk = |c| c < '0' || c > '9';
                     let line_elements: Vec<&str> = line_str.split(',').map(|elem| elem.trim_matches(&remove_junk)).collect();
-                    let time_stamp = strptime(line_elements[0].trim_matches(&remove_junk), "%Y-%m-%d %H:%M:%S").unwrap();
+                    let timestamp = strptime(line_elements[0].trim_matches(&remove_junk), "%Y-%m-%d %H:%M:%S").unwrap();
 
                     if line_elements.len() == 3 { // Only battery voltage
                         let battery_voltage = line_elements[1].parse::<f64>();
 
                         match battery_voltage {
                             Ok(value) => {
-                                Ok(StationDataType::SingleData(time_stamp, value))
+                                Ok(StationDataType::SingleData(timestamp, value))
                             },
                             Err(e) => {
                                 Err(ParseError::ParseFloatError(e))
                             }
                         }
                     } else if line_elements.len() == 11 { // All data
-                        parse_other_data(&time_stamp, &line_elements)
+                        parse_other_data(&timestamp, &line_elements)
                     } else {
                         Err(ParseError::WrongNumberOfColumns)
                     }
@@ -197,7 +197,7 @@ mod tests {
             46, 51, 51, 51, 44, 48, 46, 48, 50, 50, 44, 49, 53, 46, 49, 56, 44, 48, 46, 55, 56,
             50, 44, 49, 46, 55, 53, 44, 50, 53, 54, 46, 55, 44, 48, 44, 57, 53, 49, 10]);
         assert_eq!(result, Ok(StationDataType::MultipleData(WeatherStationData{
-            time_stamp: strptime("2016-06-11 09:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            timestamp: strptime("2016-06-11 09:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
             air_temperature: 7.56,
             air_relative_humidity: 32.25,
             solar_radiation: 1.333,
