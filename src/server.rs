@@ -136,6 +136,7 @@ fn write_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType)
                     :soil_water_content,
                     :soil_temperature,
                     :wind_speed,
+                    :wind_max,
                     :wind_direction,
                     :precipitation,
                     :air_pressure
