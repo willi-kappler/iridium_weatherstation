@@ -6,9 +6,7 @@ use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::thread::spawn;
 use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
-use std::fs::OpenOptions;
 use std::io;
-use time::{now, Tm};
 use time;
 use mysql;
 use mysql::{OptsBuilder, Pool, Value};
@@ -28,80 +26,7 @@ quick_error! {
     }
 }
 
-fn write_xml_data<'a>(tm: Tm, local_port: u16, data: &StationDataType, file_name: &str) -> Result<Option<QueryResult<'a>>, StoreDataError> {
-    let mut file_handle = io::BufWriter::new(try!(OpenOptions::new()
-        .write(true).create(true).append(true).open(format!("{}.xml", file_name))));
-
-    let datetime_format = "%Y-%m-%d %H:%M:%S";
-
-    let current_datetime = tm.strftime(&datetime_format).unwrap();
-
-    try!(write!(file_handle, "<measure>\n"));
-    try!(write!(file_handle, "<port>{}</port>\n", local_port));
-    try!(write!(file_handle, "<datetime>{}</datetime>\n", &current_datetime));
-    try!(write!(file_handle, "<data>\n"));
-
-    match data {
-        &StationDataType::SingleData(timestamp_tm, voltage) => {
-            let timestamp = try!(timestamp_tm.strftime(&datetime_format));
-            try!(write!(file_handle, "    <timestamp>{}</timestamp>\n", timestamp));
-            try!(write!(file_handle, "    <voltage>{}</voltage>\n", voltage));
-        },
-        &StationDataType::MultipleData(ref full_data_set) => {
-            let timestamp = try!(full_data_set.timestamp.strftime(&datetime_format));
-            try!(write!(file_handle, "    <timestamp>{}</timestamp>\n", timestamp));
-            try!(write!(file_handle, "    <air_temperature>{}</air_temperature>\n", full_data_set.air_temperature));
-            try!(write!(file_handle, "    <air_relative_humidity>{}</air_relative_humidity>\n", full_data_set.air_relative_humidity));
-            try!(write!(file_handle, "    <solar_radiation>{}</solar_radiation>\n", full_data_set.solar_radiation));
-            try!(write!(file_handle, "    <soil_water_content>{}</soil_water_content>\n", full_data_set.soil_water_content));
-            try!(write!(file_handle, "    <soil_temperature>{}</soil_temperature>\n", full_data_set.soil_temperature));
-            try!(write!(file_handle, "    <wind_speed>{}</wind_speed>\n", full_data_set.wind_speed));
-            try!(write!(file_handle, "    <wind_max>{}</wind_max>\n", full_data_set.wind_max));
-            try!(write!(file_handle, "    <wind_direction>{}</wind_direction>\n", full_data_set.wind_direction));
-            try!(write!(file_handle, "    <precipitation>{}</precipitation>\n", full_data_set.precipitation));
-            try!(write!(file_handle, "    <air_pressure>{}</air_pressure>\n", full_data_set.air_pressure));
-        }
-    }
-
-    try!(write!(file_handle, "</data>\n"));
-    try!(write!(file_handle, "</measure>\n\n"));
-
-    Ok(None)
-}
-
-fn write_csv_data<'a>(data: &StationDataType, file_name: &str) -> Result<Option<QueryResult<'a>>, StoreDataError> {
-    let mut file_handle = io::BufWriter::new(try!(OpenOptions::new()
-        .write(true).create(true).append(true).open(format!("{}.csv", file_name))));
-
-        let datetime_format = "%Y-%m-%d %H:%M:%S";
-
-        match data {
-            &StationDataType::SingleData(timestamp_tm, voltage) => {
-                let timestamp = try!(timestamp_tm.strftime(&datetime_format));
-                try!(write!(file_handle, "\"{}\", {}\n", timestamp, voltage));
-            },
-            &StationDataType::MultipleData(ref full_data_set) => {
-                let timestamp = try!(full_data_set.timestamp.strftime(&datetime_format));
-                try!(write!(file_handle, "\"{}\", {}, {}, {}, {}, {}, {}, {}, {}, {}, {}\n",
-                    timestamp,
-                    full_data_set.air_temperature,
-                    full_data_set.air_relative_humidity,
-                    full_data_set.solar_radiation,
-                    full_data_set.soil_water_content,
-                    full_data_set.soil_temperature,
-                    full_data_set.wind_speed,
-                    full_data_set.wind_max,
-                    full_data_set.wind_direction,
-                    full_data_set.precipitation,
-                    full_data_set.air_pressure
-                ));
-            }
-        }
-
-    Ok(None)
-}
-
-fn write_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType) -> Result<Option<QueryResult<'a>>, StoreDataError> {
+fn store_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType) -> Result<Option<QueryResult<'a>>, StoreDataError> {
     let datetime_format = "%Y-%m-%d %H:%M:%S";
 
     match data {
@@ -157,9 +82,6 @@ fn write_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType)
             return Ok(Some(result));
         }
     }
-
-
-    Ok(None)
 }
 
 fn port_to_station(port: u16) -> String{
@@ -174,7 +96,6 @@ fn port_to_station(port: u16) -> String{
 }
 
 fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
-    all_data_file: &Arc<Mutex<String>>, monthly_data_folder: &Arc<Mutex<String>>,
     db_pool: &Arc<Mutex<Pool>>) -> Result<Option<QueryResult<'a>>, StoreDataError> {
     info!("Client socket address: {}", remote_addr);
 
@@ -209,31 +130,9 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
         match parse_text_data(&buffer_right) {
             Ok(parsed_data) => {
                 info!("Data parsed correctly");
-                match all_data_file.lock() {
-                    Ok(all_data_file) => {
-                        let tm = now();
-                        let file_name = format!("{}/{}", station_folder, *all_data_file);
-                        try!(write_xml_data(tm, local_port, &parsed_data, &file_name));
-                        try!(write_csv_data(&parsed_data, &file_name));
-                    },
-                    Err(e) => info!("Mutex (poison) error (all_data_file): {}", e)
-                }
-
-                match monthly_data_folder.lock() {
-                    Ok(monthly_data_folder) => {
-                        let tm = now();
-                        let current_year = tm.strftime("%Y").unwrap();
-                        let current_month = tm.strftime("%m").unwrap();
-                        // TODO: create separate folder for year and month in Rust
-                        let file_name = format!("{}/{}/{}_{}", *monthly_data_folder, station_folder, current_year, current_month);
-                        try!(write_xml_data(tm, local_port, &parsed_data, &file_name));
-                        try!(write_csv_data(&parsed_data, &file_name));
-                    },
-                    Err(e) => info!("Mutex (poison) error (monthly_data_folder): {}", e)
-                }
                 match db_pool.lock() {
                     Ok(db_pool) => {
-                        try!(write_to_db(&db_pool, &station_folder, &parsed_data));
+                        try!(store_to_db(&db_pool, &station_folder, &parsed_data));
                     },
                     Err(e) => info!("Mutex (poison) error (db_pool): {}", e)
                 }
@@ -286,21 +185,16 @@ pub fn start_service(config: Configuration) {
         }
     };
 
-    let all_data_file = Arc::new(Mutex::new(config.all_data_file.clone()));
-    let monthly_data_folder = Arc::new(Mutex::new(config.monthly_data_folder.clone()));
     let db_pool = Arc::new(Mutex::new(db_pool));
 
     for listener in listeners {
-        let all_data_file = all_data_file.clone();
-        let monthly_data_folder = monthly_data_folder.clone();
         let cloned_pool = db_pool.clone();
         spawn(move|| {
             loop {
                 let result = listener.accept();
                 if let Ok(result) = result {
                     let (mut stream, addr) = result;
-                    match handle_client(&mut stream, &addr,
-                            &all_data_file, &monthly_data_folder, &cloned_pool) {
+                    match handle_client(&mut stream, &addr, &cloned_pool) {
                         Ok(None) => {},
                         Ok(Some(query_result)) => { info!("Database insert successfull: {}, {}",
                             query_result.affected_rows(),  query_result.last_insert_id()) },
@@ -316,11 +210,10 @@ pub fn start_service(config: Configuration) {
 mod tests {
     use time::{strptime};
     use data_parser::{StationDataType, WeatherStationData};
-    use time::{now};
     use mysql::{Value, Pool, OptsBuilder};
     use chrono::naive::datetime::NaiveDateTime;
 
-    use super::{write_csv_data, write_xml_data, write_to_db, port_to_station};
+    use super::{store_to_db, port_to_station};
 
     #[test]
     fn test_port_to_station() {
@@ -333,20 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_csv_data1() {
-        assert!(write_csv_data(&StationDataType::SingleData(strptime("2016-06-12 00:00:00",
-        "%Y-%m-%d %H:%M:%S").unwrap(), 12.73), "/does_not_work/does_not_work.csv").is_err());
-    }
-
-
-    #[test]
-    fn test_write_xml_data1() {
-        assert!(write_xml_data(now(), 0, &StationDataType::SingleData(strptime("2016-06-12 00:00:00",
-        "%Y-%m-%d %H:%M:%S").unwrap(), 12.73), "/does_not_work/does_not_work.csv").is_err());
-    }
-
-    #[test]
-    fn test_write_to_db1() {
+    fn test_store_to_db1() {
         let mut db_builder = OptsBuilder::new();
         db_builder.ip_or_hostname(Some("localhost"))
                   .tcp_port(3306)
@@ -355,7 +235,7 @@ mod tests {
                   .db_name(Some("test_weatherstation"));
         let pool = Pool::new(db_builder).unwrap();
 
-        let query_result = write_to_db(&pool, "test1", &StationDataType::SingleData(strptime("2016-06-12 12:13:14",
+        let query_result = store_to_db(&pool, "test1", &StationDataType::SingleData(strptime("2016-06-12 12:13:14",
         "%Y-%m-%d %H:%M:%S").unwrap(), 12.73));
         let query_result = query_result.unwrap().unwrap();
         let affected_rows = query_result.affected_rows();
@@ -381,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_to_db2() {
+    fn test_store_to_db2() {
         let mut db_builder = OptsBuilder::new();
         db_builder.ip_or_hostname(Some("localhost"))
                   .tcp_port(3306)
@@ -390,7 +270,7 @@ mod tests {
                   .db_name(Some("test_weatherstation"));
         let pool = Pool::new(db_builder).unwrap();
 
-        let query_result = write_to_db(&pool, "test2", &StationDataType::MultipleData(WeatherStationData{
+        let query_result = store_to_db(&pool, "test2", &StationDataType::MultipleData(WeatherStationData{
             timestamp: strptime("2016-06-15 15:16:17", "%Y-%m-%d %H:%M:%S").unwrap(),
             air_temperature: 18.15,
             air_relative_humidity: 65.31,

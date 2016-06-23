@@ -14,10 +14,6 @@ pub struct Configuration {
     pub ports: Vec<u16>,
     /// Set the log level for flexi_logger: error, info or debug
     pub log_level: String,
-    /// File that contains all the data
-    pub all_data_file: String,
-    /// Folder that contains individual data, monthly basis
-    pub monthly_data_folder: String,
     /// Connection properties for the the MySQL database
     pub hostname: String,
     pub db_name: String,
@@ -127,8 +123,6 @@ pub fn setup_configuration() -> Configuration {
         Configuration {
             ports: ports,
             log_level: log_level.to_string(),
-            all_data_file: "all_data".to_string(),
-            monthly_data_folder: "monthly".to_string(),
             hostname: hostname.to_string(),
             db_name: db_name.to_string(),
             username: username.to_string(),
@@ -144,8 +138,6 @@ mod tests {
     fn test_setup_configuration() {
         assert_eq!(setup_configuration(), Configuration{ ports: vec![2001, 2002, 2003],
             log_level: "info".to_string(),
-            all_data_file: "all_data".to_string(),
-            monthly_data_folder: "monthly".to_string(),
             hostname: "localhost".to_string(),
             db_name: "weatherstation".to_string(),
             username: "root".to_string(),
