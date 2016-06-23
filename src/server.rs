@@ -400,8 +400,8 @@ mod tests {
             wind_speed: 4.713,
             wind_max: 9.5,
             wind_direction: 257.9,
-            precipitation: 0.0,
-            air_pressure: 981.0
+            precipitation: 1.232,
+            air_pressure: 981.4
         }));
         let query_result = query_result.unwrap().unwrap();
         let affected_rows = query_result.affected_rows();
@@ -418,9 +418,26 @@ mod tests {
             assert_eq!(row_timestamp, NaiveDateTime::parse_from_str("2016-06-15 15:16:17", "%Y-%m-%d %H:%M:%S").unwrap());
             let row_station: String = row_item.get(2).unwrap();
             assert_eq!(row_station, "test2");
-
-            // let row_voltage: f64 = row_item.get(3).unwrap();
-            // assert_eq!(row_voltage, 12.73);
+            let row_air_temperature: f64 = row_item.get(3).unwrap();
+            assert_eq!(row_air_temperature, 18.15);
+            let row_air_relative_humidity: f64 = row_item.get(4).unwrap();
+            assert_eq!(row_air_relative_humidity, 65.31);
+            let row_solar_radiation: f64 = row_item.get(5).unwrap();
+            assert_eq!(row_solar_radiation, 620.4 );
+            let row_soil_water_content: f64 = row_item.get(6).unwrap();
+            assert_eq!(row_soil_water_content, 0.056);
+            let row_soil_temperature: f64 = row_item.get(7).unwrap();
+            assert_eq!(row_soil_temperature, 16.25);
+            let row_wind_speed: f64 = row_item.get(8).unwrap();
+            assert_eq!(row_wind_speed, 4.713);
+            let row_wind_max: f64 = row_item.get(9).unwrap();
+            assert_eq!(row_wind_max, 9.5);
+            let row_wind_direction: f64 = row_item.get(10).unwrap();
+            assert_eq!(row_wind_direction, 257.9);
+            let row_precipitation: f64 = row_item.get(11).unwrap();
+            assert_eq!(row_precipitation, 1.232);
+            let row_air_pressure: f64 = row_item.get(12).unwrap();
+            assert_eq!(row_air_pressure, 981.4);
         }
 
         let delete_result = pool.prep_exec("delete from multiple_data where station='test2'", ()).unwrap();
