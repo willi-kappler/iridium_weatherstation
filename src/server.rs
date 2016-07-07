@@ -26,7 +26,7 @@ quick_error! {
     }
 }
 
-fn store_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType) -> Result<Option<QueryResult<'a>>, StoreDataError> {
+fn store_to_db<'a>(db_pool: &Pool, station_name: &str, data: &StationDataType) -> Result<Option<QueryResult<'a>>, StoreDataError> {
     let datetime_format = "%Y-%m-%d %H:%M:%S";
 
     match data {
@@ -34,7 +34,7 @@ fn store_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType)
             let timestamp = try!(timestamp_tm.strftime(&datetime_format));
             let result = try!(db_pool.prep_exec("INSERT INTO battery_data (timestamp, station,
                 battery_voltage) VALUES (:timestamp, :station, :battery_voltage)",
-                (Value::from(timestamp.to_string()), Value::from(station_folder), Value::from(voltage))));
+                (Value::from(timestamp.to_string()), Value::from(station_name), Value::from(voltage))));
             return Ok(Some(result));
         },
         &StationDataType::MultipleData(ref full_data_set) => {
@@ -67,7 +67,7 @@ fn store_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType)
                     :air_pressure
                 )", (
                     Value::from(timestamp.to_string()),
-                    Value::from(station_folder),
+                    Value::from(station_name),
                     Value::from(full_data_set.air_temperature),
                     Value::from(full_data_set.air_relative_humidity),
                     Value::from(full_data_set.solar_radiation),
@@ -86,11 +86,11 @@ fn store_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType)
 
 fn port_to_station(port: u16) -> String{
     match port {
-        2100 => "2100_Na".to_string(),
-        2101 => "2101_SG".to_string(),
-        2102 => "2102_PdA".to_string(),
-        2103 => "2103_LC".to_string(),
-        2104 => "2104_Tue".to_string(),
+        2100 => "Nahuelbuta".to_string(),
+        2101 => "Santa_Gracia".to_string(),
+        2102 => "Pan_de_Azucar".to_string(),
+        2103 => "La_Campana".to_string(),
+        2104 => "Wanne_Tuebingen".to_string(),
         _ => "unknown".to_string()
     }
 }
@@ -114,7 +114,7 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
     info!("Number of bytes received: {}", len);
 
     if buffer.len() > HEADER_LENGTH {
-        let station_folder = port_to_station(local_port);
+        let station_name = port_to_station(local_port);
 
         let (buffer_left, buffer_right) = buffer.split_at(HEADER_LENGTH);
 
@@ -124,15 +124,15 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
         info!("Header: {:?}", buffer_left);
         info!("Data: {:?}", buffer_right);
 
-        info!("Header (ASCII) ({}): '{}'", &station_folder, str_header);
-        info!("Data (ASCII) ({}): '{}'", &station_folder, str_data);
+        info!("Header (ASCII) ({}): '{}'", &station_name, str_header);
+        info!("Data (ASCII) ({}): '{}'", &station_name, str_data);
 
         match parse_text_data(&buffer_right) {
             Ok(parsed_data) => {
                 info!("Data parsed correctly");
                 match db_pool.lock() {
                     Ok(db_pool) => {
-                        try!(store_to_db(&db_pool, &station_folder, &parsed_data));
+                        try!(store_to_db(&db_pool, &station_name, &parsed_data));
                     },
                     Err(e) => info!("Mutex (poison) error (db_pool): {}", e)
                 }
@@ -219,11 +219,11 @@ mod tests {
 
     #[test]
     fn test_port_to_station() {
-        assert_eq!(port_to_station(2100), "2100_Na");
-        assert_eq!(port_to_station(2101), "2101_SG");
-        assert_eq!(port_to_station(2102), "2102_PdA");
-        assert_eq!(port_to_station(2103), "2103_LC");
-        assert_eq!(port_to_station(2104), "2104_Tue");
+        assert_eq!(port_to_station(2100), "Nahuelbuta");
+        assert_eq!(port_to_station(2101), "Santa_Gracia");
+        assert_eq!(port_to_station(2102), "Pan_de_Azucar");
+        assert_eq!(port_to_station(2103), "La_Campana");
+        assert_eq!(port_to_station(2104), "Wanne_Tuebingen");
         assert_eq!(port_to_station(2105), "unknown");
     }
 
