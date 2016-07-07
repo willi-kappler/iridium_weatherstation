@@ -51,7 +51,7 @@ fn main() {
     info!("Database: {}", config.db_name);
     info!("DB user: {}", config.username);
 
-    start_service(config);
+    start_service(&config);
 
     loop {
         info!("Alive message");

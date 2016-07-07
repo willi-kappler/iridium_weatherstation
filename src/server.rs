@@ -156,11 +156,11 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
     Ok(None)
 }
 
-pub fn start_service(config: Configuration) {
+pub fn start_service(config: &Configuration) {
     let mut listeners = Vec::new();
 
-    for port in config.ports {
-        match TcpListener::bind(("0.0.0.0", port)) {
+    for port in &config.ports {
+        match TcpListener::bind(("0.0.0.0", *port)) {
             Ok(listener) => {
                 info!("Create listener for port {}", port);
                 listeners.push(listener);
@@ -173,10 +173,10 @@ pub fn start_service(config: Configuration) {
     }
 
     let mut db_builder = OptsBuilder::new();
-    db_builder.ip_or_hostname(Some(config.hostname))
-           .db_name(Some(config.db_name))
-           .user(Some(config.username))
-           .pass(Some(config.password));
+    db_builder.ip_or_hostname(Some(config.hostname.as_ref()))
+           .db_name(Some(config.db_name.as_ref()))
+           .user(Some(config.username.as_ref()))
+           .pass(Some(config.password.as_ref()));
     let db_pool = match Pool::new(db_builder) {
         Ok(db_pool) => db_pool,
         Err(e) => {
@@ -362,7 +362,7 @@ mod tests {
             password: "test".to_string()
         };
 
-        start_service(config);
+        start_service(&config);
 
         info!("Wait for server...");
 
