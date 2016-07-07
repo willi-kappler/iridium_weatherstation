@@ -32,14 +32,14 @@ fn store_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType)
     match data {
         &StationDataType::SingleData(timestamp_tm, voltage) => {
             let timestamp = try!(timestamp_tm.strftime(&datetime_format));
-            let result = try!(db_pool.prep_exec("insert into battery_data (timestamp, station,
-                battery_voltage) values (:timestamp, :station, :battery_voltage)",
+            let result = try!(db_pool.prep_exec("INSERT INTO battery_data (timestamp, station,
+                battery_voltage) VALUES (:timestamp, :station, :battery_voltage)",
                 (Value::from(timestamp.to_string()), Value::from(station_folder), Value::from(voltage))));
             return Ok(Some(result));
         },
         &StationDataType::MultipleData(ref full_data_set) => {
             let timestamp = try!(full_data_set.timestamp.strftime(&datetime_format));
-            let result = try!(db_pool.prep_exec("insert into multiple_data (
+            let result = try!(db_pool.prep_exec("INSERT INTO multiple_data (
                     timestamp,
                     station,
                     air_temperature,
@@ -52,7 +52,7 @@ fn store_to_db<'a>(db_pool: &Pool, station_folder: &str, data: &StationDataType)
                     wind_direction,
                     precipitation,
                     air_pressure
-                ) values (
+                ) VALUES (
                     :timestamp,
                     :station,
                     :air_temperature,
@@ -114,6 +114,8 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
     info!("Number of bytes received: {}", len);
 
     if buffer.len() > HEADER_LENGTH {
+        let station_folder = port_to_station(local_port);
+
         let (buffer_left, buffer_right) = buffer.split_at(HEADER_LENGTH);
 
         let str_header = String::from_utf8_lossy(buffer_left);
@@ -122,10 +124,8 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
         info!("Header: {:?}", buffer_left);
         info!("Data: {:?}", buffer_right);
 
-        info!("Header (ASCII): '{}'", str_header);
-        info!("Data (ASCII): '{}'", str_data);
-
-        let station_folder = port_to_station(local_port);
+        info!("Header (ASCII) ({}): '{}'", &station_folder, str_header);
+        info!("Data (ASCII) ({}): '{}'", &station_folder, str_data);
 
         match parse_text_data(&buffer_right) {
             Ok(parsed_data) => {
@@ -198,7 +198,9 @@ pub fn start_service(config: Configuration) {
                         Ok(None) => {},
                         Ok(Some(query_result)) => { info!("Database insert successfull: {}, {}",
                             query_result.affected_rows(),  query_result.last_insert_id()) },
-                        Err(data_error) => { info!("Store Data Error: {}", data_error) }
+                        Err(StoreDataError::MySQLError(db_error)) => { info!("DB Error: {}", db_error) },
+                        Err(StoreDataError::IOError(io_error)) => { info!("IO Error: {}", io_error) },
+                        Err(StoreDataError::TimeParseError(time_error)) => { info!("Time parse Error: {}", time_error) }
                     }
                 }
             }

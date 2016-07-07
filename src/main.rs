@@ -19,7 +19,7 @@ extern crate flexi_logger;
 extern crate station_util;
 
 // System modules:
-use std::time::{Duration};
+use std::time::Duration;
 use std::thread::sleep;
 
 // External modules:
@@ -47,6 +47,9 @@ fn main() {
     }
 
     info!("Using ports: {}", ports);
+    info!("Hostname: {}", config.hostname);
+    info!("Database: {}", config.db_name);
+    info!("DB user: {}", config.username);
 
     start_service(config);
 
