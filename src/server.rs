@@ -210,12 +210,19 @@ pub fn start_service(config: Configuration) {
 
 #[cfg(test)]
 mod tests {
+    use std::net::TcpStream;
+    use std::time::Duration;
+    use std::thread::sleep;
+    use std::io::Write;
+
     use time::{strptime};
-    use data_parser::{StationDataType, WeatherStationData};
     use mysql::{Value, Pool, OptsBuilder};
     use chrono::naive::datetime::NaiveDateTime;
+    use flexi_logger::{detailed_format, init, LogConfig};
 
-    use super::{store_to_db, port_to_station};
+    use configuration::Configuration;
+    use data_parser::{StationDataType, WeatherStationData};
+    use super::{store_to_db, port_to_station, start_service};
 
     #[test]
     fn test_port_to_station() {
@@ -229,6 +236,8 @@ mod tests {
 
     #[test]
     fn test_store_to_db1() {
+        // let _ = init(LogConfig { log_to_file: true, format: detailed_format, .. LogConfig::new() }, Some("info".to_string()));
+
         let mut db_builder = OptsBuilder::new();
         db_builder.ip_or_hostname(Some("localhost"))
                   .tcp_port(3306)
@@ -244,7 +253,10 @@ mod tests {
         assert_eq!(affected_rows, 1);
         let last_insert_id = query_result.last_insert_id();
 
-        let select_result = pool.prep_exec("select * from battery_data where id=(:id)", (Value::from(last_insert_id),)).unwrap();
+        let select_result = pool.prep_exec("SELECT * FROM battery_data WHERE id = (:id)", (Value::from(last_insert_id),)).unwrap();
+
+        let mut count = 0;
+
         for opt_item in select_result {
             let mut row_item = opt_item.unwrap();
             assert_eq!(row_item.len(), 4);
@@ -256,14 +268,19 @@ mod tests {
             assert_eq!(row_station, "test1");
             let row_voltage: f64 = row_item.get(3).unwrap();
             assert_eq!(row_voltage, 12.73);
+            count = count + 1;
         }
 
-        let delete_result = pool.prep_exec("delete from battery_data where station='test1'", ()).unwrap();
+        assert_eq!(count, 1);
+
+        let delete_result = pool.prep_exec("DELETE FROM battery_data WHERE station = 'test1'", ()).unwrap();
         assert_eq!(delete_result.affected_rows(), 1);
     }
 
     #[test]
     fn test_store_to_db2() {
+        // let _ = init(LogConfig { log_to_file: true, format: detailed_format, .. LogConfig::new() }, Some("info".to_string()));
+
         let mut db_builder = OptsBuilder::new();
         db_builder.ip_or_hostname(Some("localhost"))
                   .tcp_port(3306)
@@ -290,7 +307,10 @@ mod tests {
         assert_eq!(affected_rows, 1);
         let last_insert_id = query_result.last_insert_id();
 
-        let select_result = pool.prep_exec("select * from multiple_data where id=(:id)", (Value::from(last_insert_id),)).unwrap();
+        let select_result = pool.prep_exec("SELECT * FROM multiple_data WHERE id = (:id)", (Value::from(last_insert_id),)).unwrap();
+
+        let mut count = 0;
+
         for opt_item in select_result {
             let mut row_item = opt_item.unwrap();
             assert_eq!(row_item.len(), 13);
@@ -320,11 +340,85 @@ mod tests {
             assert_eq!(row_precipitation, 1.232);
             let row_air_pressure: f64 = row_item.get(12).unwrap();
             assert_eq!(row_air_pressure, 981.4);
+            count = count + 1;
         }
 
-        let delete_result = pool.prep_exec("delete from multiple_data where station='test2'", ()).unwrap();
+        assert_eq!(count, 1);
+
+        let delete_result = pool.prep_exec("DELETE FROM multiple_data WHERE station = 'test2'", ()).unwrap();
         assert_eq!(delete_result.affected_rows(), 1);
     }
 
+    #[test]
+    fn test_server1() {
+        let _ = init(LogConfig { log_to_file: true, format: detailed_format, .. LogConfig::new() }, Some("info".to_string()));
 
+        let config = Configuration {
+            ports: vec![2001],
+            log_level: "info".to_string(),
+            hostname: "localhost".to_string(),
+            db_name: "test_weatherstation".to_string(),
+            username: "test".to_string(),
+            password: "test".to_string()
+        };
+
+        start_service(config);
+
+        info!("Wait for server...");
+
+        // Wait for the server to start up.
+        sleep(Duration::new(1, 0));
+
+        info!("Wait end!");
+
+        {
+            // Connect to local server
+            let mut stream = TcpStream::connect("127.0.0.1:2001").unwrap();
+
+            let result = stream.write_fmt(format_args!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"2016-04-17 17:29:22\",7.53,0"));
+            assert!(result.is_ok());
+        } // Socket gets closed here!
+
+        info!("Wait for client...");
+
+        // Wait for the client to submit the data.
+        // Wait for the server to parse and process the data.
+        sleep(Duration::new(1, 0));
+
+        info!("Wait end!");
+
+        let mut db_builder = OptsBuilder::new();
+        db_builder.ip_or_hostname(Some("localhost"))
+                  .tcp_port(3306)
+                  .user(Some("test"))
+                  .pass(Some("test"))
+                  .db_name(Some("test_weatherstation"));
+        let pool = Pool::new(db_builder).unwrap();
+
+        info!("DB connection successfull!");
+
+        let select_result = pool.prep_exec("SELECT * FROM battery_data WHERE station = 'unknown'", ()).unwrap();
+
+        let mut count = 0;
+
+        for opt_item in select_result {
+            let mut row_item = opt_item.unwrap();
+            assert_eq!(row_item.len(), 4);
+            let row_timestamp: NaiveDateTime = row_item.get(1).unwrap();
+            assert_eq!(row_timestamp, NaiveDateTime::parse_from_str("2016-04-17 17:29:22", "%Y-%m-%d %H:%M:%S").unwrap());
+            let row_station: String = row_item.get(2).unwrap();
+            assert_eq!(row_station, "unknown");
+            let row_voltage: f64 = row_item.get(3).unwrap();
+            assert_eq!(row_voltage, 7.53);
+            count = count + 1;
+        }
+        assert_eq!(count, 1);
+
+        let delete_result = pool.prep_exec("DELETE FROM battery_data WHERE station = 'unknown'", ()).unwrap();
+        assert_eq!(delete_result.affected_rows(), 1);
+    }
+
+    // Test server:
+    // echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"2016-07-06 00:00:00",12.71,0 | nc localhost 2001
+    // echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"2016-07-06 12:00:00",13.86,9.98,356.3,0.055,14.12,1.248,2.6,121.7,0,979 | nc localhost 2001
 }
