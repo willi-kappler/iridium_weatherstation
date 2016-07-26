@@ -129,7 +129,7 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
 
         // Quick hack for now, remove later
         if local_port < 2104 {
-            info!("Parse text data")
+            info!("Parse text data");
 
             match parse_text_data(&buffer_right) {
                 Ok(parsed_data) => {
@@ -146,7 +146,7 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
                 }
             }
         } else {
-            info!("Parse binary data")
+            info!("Parse binary data");
 
             match parse_text_data(&buffer_right) {
                 Ok(parsed_data) => {

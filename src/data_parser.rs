@@ -39,6 +39,9 @@ quick_error! {
         EmptyBuffer {
             description("Empty buffer")
         }
+        InvalidDataHeader {
+            description("Invalid data header")
+        }
         NoTimeStamp {
             description("Invalid data: no time stamp found")
         }
@@ -157,15 +160,26 @@ pub fn parse_binary_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
     //
     // E-P: 13-bit binary value, Largest 13-bit magnitude is 8191, but Campbell Scientific defines the largest-allowable magnitude as 7999
 
+    if buffer.len() < 4 {
+        // Early return if buffer is too short
+        Err(ParseError::EmptyBuffer)
+    } else {
+        if buffer[0] == 2 && buffer[1] == 0 {
+            let data_length = buffer[2];
 
-    Err(ParseError::EmptyBuffer)
+            Err(ParseError::EmptyBuffer)
+        } else {
+            // Invalid buffer header
+            Err(ParseError::InvalidDataHeader)
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use time::strptime;
 
-    use super::{parse_text_data, StationDataType, ParseError, WeatherStationData};
+    use super::{parse_text_data, parse_binary_data, StationDataType, ParseError, WeatherStationData};
 
     #[test]
     fn test_parse_text_data_empty() {
@@ -224,6 +238,36 @@ mod tests {
             57, 58, 48, 48, 58, 48, 48, 34, 44, 55, 46, 53, 54, 44, 51, 50, 46, 50, 53, 44, 49,
             46, 51, 51, 51, 44, 48, 46, 48, 50, 50, 44, 49, 53, 46, 49, 56, 44, 48, 46, 55]);
         assert_eq!(result, Err(ParseError::WrongNumberOfColumns));
+    }
+
+    #[test]
+    fn test_parse_binary_data_empty1() {
+        let result = parse_binary_data(&[]);
+        assert_eq!(result, Err(ParseError::EmptyBuffer));
+    }
+
+    #[test]
+    fn test_parse_binary_data_empty2() {
+        let result = parse_binary_data(&[1]);
+        assert_eq!(result, Err(ParseError::EmptyBuffer));
+    }
+
+    #[test]
+    fn test_parse_binary_data_empty3() {
+        let result = parse_binary_data(&[1, 2]);
+        assert_eq!(result, Err(ParseError::EmptyBuffer));
+    }
+
+    #[test]
+    fn test_parse_binary_data_empty4() {
+        let result = parse_binary_data(&[1, 2, 3]);
+        assert_eq!(result, Err(ParseError::EmptyBuffer));
+    }
+
+    #[test]
+    fn test_parse_binary_data_invalid_header() {
+        let result = parse_binary_data(&[1, 2, 3, 4]);
+        assert_eq!(result, Err(ParseError::InvalidDataHeader));
     }
 
 }
