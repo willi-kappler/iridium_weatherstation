@@ -127,18 +127,40 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
         info!("Header (ASCII) ({}): '{}'", &station_name, str_header);
         info!("Data (ASCII) ({}): '{}'", &station_name, str_data);
 
-        match parse_text_data(&buffer_right) {
-            Ok(parsed_data) => {
-                info!("Data parsed correctly");
-                match db_pool.lock() {
-                    Ok(db_pool) => {
-                        try!(store_to_db(&db_pool, &station_name, &parsed_data));
-                    },
-                    Err(e) => info!("Mutex (poison) error (db_pool): {}", e)
+        // Quick hack for now, remove later
+        if local_port < 2104 {
+            info!("Parse text data")
+
+            match parse_text_data(&buffer_right) {
+                Ok(parsed_data) => {
+                    info!("Data parsed correctly");
+                    match db_pool.lock() {
+                        Ok(db_pool) => {
+                            try!(store_to_db(&db_pool, &station_name, &parsed_data));
+                        },
+                        Err(e) => info!("Mutex (poison) error (db_pool): {}", e)
+                    }
+                },
+                Err(e) => {
+                    info!("Could not parse data: {}", e);
                 }
-            },
-            Err(e) => {
-                info!("Could not parse data: {}", e);
+            }
+        } else {
+            info!("Parse binary data")
+
+            match parse_text_data(&buffer_right) {
+                Ok(parsed_data) => {
+                    info!("Data parsed correctly");
+                    match db_pool.lock() {
+                        Ok(db_pool) => {
+                            try!(store_to_db(&db_pool, &station_name, &parsed_data));
+                        },
+                        Err(e) => info!("Mutex (poison) error (db_pool): {}", e)
+                    }
+                },
+                Err(e) => {
+                    info!("Could not parse data: {}", e);
+                }
             }
         }
     } else if buffer.len() < HEADER_LENGTH {
