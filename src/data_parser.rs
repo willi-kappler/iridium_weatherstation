@@ -4,8 +4,11 @@
 
 use std::str;
 use std::num;
+use std::io::Cursor;
+
 use time::{strptime, Tm};
 use regex::Regex;
+use byteorder::{BigEndian, ReadBytesExt};
 
 /// The actual data sent from each weather station
 #[derive(Debug, Clone, PartialEq)]
@@ -160,16 +163,43 @@ pub fn parse_binary_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
     //
     // E-P: 13-bit binary value, Largest 13-bit magnitude is 8191, but Campbell Scientific defines the largest-allowable magnitude as 7999
 
+    const header_length: u16 = 3;
+    const ULONG_len: u16 = 4;
+    const FP2_len: u16 = 2;
+
+    const battery_data_length: u16 = header_length + (2 * ULONG_len) + (2 * FP2_len);
+    const full_data_length: u16 = header_length + (2 * ULONG_len) + (10 * FP2_len);
+
     if buffer.len() < 4 {
         // Early return if buffer is too short
         Err(ParseError::EmptyBuffer)
     } else {
-        if buffer[0] == 2 && buffer[1] == 0 {
-            let data_length = buffer[2];
+        if buffer[0] == 2 && buffer[1] == 1 && buffer[2] == 9 {
+            // Battery data: [2, 1, 9, ...] ULONG, ULONG, FP2, FP2
 
-            Err(ParseError::EmptyBuffer)
+            if buffer.len() < battery_data_length as usize {
+                Err(ParseError::EmptyBuffer)
+            } else {
+                let mut read_bytes = Cursor::new(&buffer[3..]);
+
+                // Time stamp
+                let seconds = read_bytes.read_u32::<BigEndian>().unwrap();
+                // Should be zero
+                let nano_seconds = read_bytes.read_u32::<BigEndian>().unwrap();
+                // Usually about 12.5 Volts, FP2 format
+                let battery_voltage = read_bytes.read_u16::<BigEndian>().unwrap();
+
+                Err(ParseError::InvalidDataHeader)
+            }
+        } else if buffer[0] == 2 && buffer[1] == 4 && buffer[2] == 167 {
+            // Full data: [2, 4, 167, ...] ULONG, ULONG, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2
+
+            if buffer.len() < full_data_length as usize {
+                Err(ParseError::EmptyBuffer)
+            } else {
+                Err(ParseError::InvalidDataHeader)
+            }
         } else {
-            // Invalid buffer header
             Err(ParseError::InvalidDataHeader)
         }
     }
@@ -265,8 +295,26 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_binary_data_empty5() {
+        let result = parse_binary_data(&[2, 1, 9, 0, 0, 0]);
+        assert_eq!(result, Err(ParseError::EmptyBuffer));
+    }
+
+    #[test]
+    fn test_parse_binary_data_empty6() {
+        let result = parse_binary_data(&[2, 4, 167, 0, 0, 0]);
+        assert_eq!(result, Err(ParseError::EmptyBuffer));
+    }
+
+    #[test]
     fn test_parse_binary_data_invalid_header() {
         let result = parse_binary_data(&[1, 2, 3, 4]);
+        assert_eq!(result, Err(ParseError::InvalidDataHeader));
+    }
+
+    #[test]
+    fn test_parse_binary_battery1() {
+        let result = parse_binary_data(&[2, 1, 9, 0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 96, 0]);
         assert_eq!(result, Err(ParseError::InvalidDataHeader));
     }
 

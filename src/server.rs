@@ -15,7 +15,7 @@ use std::process;
 
 // Internal modules:
 use configuration::{Configuration, HEADER_LENGTH};
-use data_parser::{parse_text_data, StationDataType};
+use data_parser::{parse_text_data, parse_binary_data, StationDataType};
 
 quick_error! {
     #[derive(Debug)]
@@ -127,7 +127,7 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
         info!("Header (ASCII) ({}): '{}'", &station_name, str_header);
         info!("Data (ASCII) ({}): '{}'", &station_name, str_data);
 
-        // Quick hack for now, remove later
+        // Quick hack for now, remove later when everything is binary
         if local_port < 2104 {
             info!("Parse text data");
 
@@ -148,7 +148,7 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
         } else {
             info!("Parse binary data");
 
-            match parse_text_data(&buffer_right) {
+            match parse_binary_data(&buffer_right) {
                 Ok(parsed_data) => {
                     info!("Data parsed correctly");
                     match db_pool.lock() {

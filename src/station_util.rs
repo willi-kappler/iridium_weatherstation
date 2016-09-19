@@ -11,6 +11,7 @@ extern crate flexi_logger;
 extern crate time;
 extern crate regex;
 extern crate chrono;
+extern crate byteorder;
 
 // Internal modules
 pub mod configuration;
