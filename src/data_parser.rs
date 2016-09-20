@@ -5,10 +5,11 @@
 use std::str;
 use std::num;
 use std::io::Cursor;
+use std::f64::{INFINITY, NEG_INFINITY, NAN};
 
-use time::{strptime, Tm};
+use time::{strptime, Tm, Duration};
 use regex::Regex;
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{LittleEndian, BigEndian, ReadBytesExt};
 
 /// The actual data sent from each weather station
 #[derive(Debug, Clone, PartialEq)]
@@ -140,6 +141,48 @@ pub fn parse_text_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
     }
 }
 
+fn u32_to_timestamp(seconds: u32) -> Tm {
+    let datetime_base = strptime("1990-01-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+    datetime_base + Duration::seconds(seconds as i64)
+}
+
+fn u16_to_f64(data: u16) -> f64 {
+    // 17660 = 252 + (68 * 256) = 01000100 11111100 -> 12.76
+    // 17662 = 254 + (68 * 256) = 01000100 11111110 -> 12.78
+    // 17664 = 69 * 256 =  01000101 00000000 -> 12.80
+    // 24576 = (96 * 256) = 01100000 00000000 -> 0
+    // 962 = 194 + (3 * 256) = 00000011 11000011 -> 963.0
+    // 25576 = 232 + (99 * 256) = 01100011 11101000 -> 1.0
+
+    const pos_infinity: u16 = 0b00011111_11111111;
+    const neg_infinity: u16 = 0b10011111_11111111;
+    const nan: u16 = 0b10011111_11111110;
+
+    if data == pos_infinity {
+        INFINITY
+    } else if data == neg_infinity {
+        NEG_INFINITY
+    } else if data == nan {
+        NAN
+    } else {
+        let sign = if data & 0b10000000_00000000 == 0 { 1.0 } else { - 1.0 };
+
+        let mantissa: f64 = (data & 0b00011111_11111111) as f64;
+        let exponent: u16 = (data & 0b01100000_00000000) >> 13;
+
+        match exponent {
+            1 => mantissa / 10.0,
+            2 => mantissa / 100.0,
+            3 => mantissa / 1000.0,
+            _ => mantissa
+        }
+    }
+}
+
+fn check_header(buffer: &[u8], b1: u8, b2: u8, b3: u8) -> bool {
+    buffer[0] == b1 && buffer[1] == b2 && buffer[2] == b3
+}
+
 /// Parse all the data that is send (as binary) from the weather station.
 pub fn parse_binary_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
     // base16 2 byte floats:
@@ -162,6 +205,9 @@ pub fn parse_binary_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
     // D: being the MSB
     //
     // E-P: 13-bit binary value, Largest 13-bit magnitude is 8191, but Campbell Scientific defines the largest-allowable magnitude as 7999
+    //
+    // More information here:
+    // https://www.campbellsci.com/forum?forum=1&l=thread&tid=540
 
     const header_length: u16 = 3;
     const ULONG_len: u16 = 4;
@@ -174,7 +220,7 @@ pub fn parse_binary_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
         // Early return if buffer is too short
         Err(ParseError::EmptyBuffer)
     } else {
-        if buffer[0] == 2 && buffer[1] == 1 && buffer[2] == 9 {
+        if check_header(&buffer, 2, 1, 9) {
             // Battery data: [2, 1, 9, ...] ULONG, ULONG, FP2, FP2
 
             if buffer.len() < battery_data_length as usize {
@@ -183,21 +229,54 @@ pub fn parse_binary_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
                 let mut read_bytes = Cursor::new(&buffer[3..]);
 
                 // Time stamp
-                let seconds = read_bytes.read_u32::<BigEndian>().unwrap();
-                // Should be zero
-                let nano_seconds = read_bytes.read_u32::<BigEndian>().unwrap();
+                let seconds = read_bytes.read_u32::<LittleEndian>().unwrap();
+
+                // Should be zero, not needed
+                let _ = read_bytes.read_u32::<LittleEndian>().unwrap();
+
                 // Usually about 12.5 Volts, FP2 format
                 let battery_voltage = read_bytes.read_u16::<BigEndian>().unwrap();
 
-                Err(ParseError::InvalidDataHeader)
+                Ok(StationDataType::SingleData(u32_to_timestamp(seconds), u16_to_f64(battery_voltage)))
             }
-        } else if buffer[0] == 2 && buffer[1] == 4 && buffer[2] == 167 {
+        } else if check_header(&buffer, 2, 4, 167) {
             // Full data: [2, 4, 167, ...] ULONG, ULONG, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2
 
             if buffer.len() < full_data_length as usize {
                 Err(ParseError::EmptyBuffer)
             } else {
-                Err(ParseError::InvalidDataHeader)
+                let mut read_bytes = Cursor::new(&buffer[3..]);
+
+                // Time stamp
+                let seconds = read_bytes.read_u32::<LittleEndian>().unwrap();
+
+                // Should be zero, not needed
+                let _ = read_bytes.read_u32::<LittleEndian>().unwrap();
+
+                let air_temperature = read_bytes.read_u16::<BigEndian>().unwrap();
+                let air_relative_humidity = read_bytes.read_u16::<BigEndian>().unwrap();
+                let solar_radiation = read_bytes.read_u16::<BigEndian>().unwrap();;
+                let soil_water_content = read_bytes.read_u16::<BigEndian>().unwrap();
+                let soil_temperature = read_bytes.read_u16::<BigEndian>().unwrap();
+                let wind_speed = read_bytes.read_u16::<BigEndian>().unwrap();
+                let wind_max = read_bytes.read_u16::<BigEndian>().unwrap();
+                let wind_direction = read_bytes.read_u16::<BigEndian>().unwrap();
+                let precipitation = read_bytes.read_u16::<BigEndian>().unwrap();
+                let air_pressure = read_bytes.read_u16::<BigEndian>().unwrap();
+
+                Ok(StationDataType::MultipleData(WeatherStationData{
+                    timestamp: u32_to_timestamp(seconds),
+                    air_temperature: u16_to_f64(air_temperature),
+                    air_relative_humidity: u16_to_f64(air_relative_humidity),
+                    solar_radiation: u16_to_f64(solar_radiation),
+                    soil_water_content: u16_to_f64(soil_water_content),
+                    soil_temperature: u16_to_f64(soil_temperature),
+                    wind_speed: u16_to_f64(wind_speed),
+                    wind_max: u16_to_f64(wind_max),
+                    wind_direction: u16_to_f64(wind_direction),
+                    precipitation: u16_to_f64(precipitation),
+                    air_pressure: u16_to_f64(precipitation)
+                }))
             }
         } else {
             Err(ParseError::InvalidDataHeader)
@@ -207,9 +286,10 @@ pub fn parse_binary_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
 
 #[cfg(test)]
 mod tests {
-    use time::strptime;
+    use time::{strptime, Duration};
 
-    use super::{parse_text_data, parse_binary_data, StationDataType, ParseError, WeatherStationData};
+    use super::*;
+    use super::{u32_to_timestamp, u16_to_f64, check_header};
 
     #[test]
     fn test_parse_text_data_empty() {
@@ -271,6 +351,68 @@ mod tests {
     }
 
     #[test]
+    fn test_check_header1() {
+        assert!(check_header(&[1, 2, 3], 1, 2, 3));
+    }
+
+    #[test]
+    fn test_check_header2() {
+        assert!(check_header(&[5, 12, 33], 5, 12, 33));
+    }
+
+    #[test]
+    fn test_check_header3() {
+        assert!(!check_header(&[5, 12, 33], 1, 12, 33));
+    }
+
+    #[test]
+    fn test_check_header4() {
+        assert!(!check_header(&[5, 12, 33], 5, 1, 33));
+    }
+
+    #[test]
+    fn test_check_header5() {
+        assert!(!check_header(&[5, 12, 33], 5, 12, 1));
+    }
+
+    #[test]
+    fn test_u32_to_timestamp() {
+        let result = u32_to_timestamp(843091200);
+        let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        assert_eq!(result, datetime + Duration::seconds(0));
+    }
+
+    #[test]
+    fn test_u16_to_f64_1() {
+        assert_eq!(u16_to_f64(17660), 12.76);
+    }
+
+    #[test]
+    fn test_u16_to_f64_2() {
+        assert_eq!(u16_to_f64(17662), 12.78);
+    }
+
+    #[test]
+    fn test_u16_to_f64_3() {
+        assert_eq!(u16_to_f64(17664), 12.80);
+    }
+
+    #[test]
+    fn test_u16_to_f64_4() {
+        assert_eq!(u16_to_f64(24576), 0.0);
+    }
+
+    #[test]
+    fn test_u16_to_f64_5() {
+        assert_eq!(u16_to_f64(962), 962.0);
+    }
+
+    #[test]
+    fn test_u16_to_f64_6() {
+        assert_eq!(u16_to_f64(25576), 1.0);
+    }
+
+    #[test]
     fn test_parse_binary_data_empty1() {
         let result = parse_binary_data(&[]);
         assert_eq!(result, Err(ParseError::EmptyBuffer));
@@ -315,7 +457,26 @@ mod tests {
     #[test]
     fn test_parse_binary_battery1() {
         let result = parse_binary_data(&[2, 1, 9, 0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 96, 0]);
-        assert_eq!(result, Err(ParseError::InvalidDataHeader));
+        let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
+        assert_eq!(result, Ok(StationDataType::SingleData(datetime, 12.76)));
     }
 
+    #[test]
+    fn test_parse_binary_full1() {
+        let result = parse_binary_data(&[2, 4, 167, 0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194]);
+        let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
+        assert_eq!(result, Ok(StationDataType::MultipleData(WeatherStationData{
+            timestamp: datetime,
+            air_temperature: 15.02,
+            air_relative_humidity: 99.7,
+            solar_radiation: 74.17,
+            soil_water_content: 0.077,
+            soil_temperature: 16.36,
+            wind_speed: 0.359,
+            wind_max: 0.75,
+            wind_direction: 300.6,
+            precipitation: 1.0,
+            air_pressure: 1.0
+        })));
+    }
 }
