@@ -7,7 +7,6 @@ use std::num;
 use std::io;
 use std::io::Cursor;
 use std::f64::{INFINITY, NEG_INFINITY, NAN};
-use std::error::Error;
 
 use time::{strptime, Tm, Duration};
 use regex::Regex;
@@ -185,20 +184,20 @@ fn u16_to_f64(data: u16) -> f64 {
     // 962 = 194 + (3 * 256) = 00000011 11000011 -> 963.0
     // 25576 = 232 + (99 * 256) = 01100011 11101000 -> 1.0
 
-    const pos_infinity: u16 = 0b00011111_11111111;
-    const neg_infinity: u16 = 0b10011111_11111111;
-    const nan: u16 = 0b10011111_11111110;
+    const F2_POS_INFINITY: u16 = 0b00011111_11111111;
+    const F2_NEG_INFINITY: u16 = 0b10011111_11111111;
+    const F2_NAN: u16 = 0b10011111_11111110;
 
-    if data == pos_infinity {
+    if data == F2_POS_INFINITY {
         INFINITY
-    } else if data == neg_infinity {
+    } else if data == F2_NEG_INFINITY {
         NEG_INFINITY
-    } else if data == nan {
+    } else if data == F2_NAN {
         NAN
     } else {
         let sign = if data & 0b10000000_00000000 == 0 { 1.0 } else { - 1.0 };
 
-        let mantissa: f64 = (data & 0b00011111_11111111) as f64;
+        let mantissa: f64 = ((data & 0b00011111_11111111) as f64) * sign;
         let exponent: u16 = (data & 0b01100000_00000000) >> 13;
 
         match exponent {
@@ -259,29 +258,29 @@ fn parse_binary_data_multiple(buffer: &[u8]) -> Result<StationDataType, ParseErr
         wind_max: u16_to_f64(wind_max),
         wind_direction: u16_to_f64(wind_direction),
         precipitation: u16_to_f64(precipitation),
-        air_pressure: u16_to_f64(precipitation)
+        air_pressure: u16_to_f64(air_pressure)
     }))
 }
 
 /// Parse all the data that is send (as binary) from the weather station.
 pub fn parse_binary_data(buffer: &[u8]) -> Vec<Result<StationDataType, ParseError>> {
-    const header_length: u16 = 3;
-    const ULONG_len: u16 = 4;
-    const FP2_len: u16 = 2;
+    const HEADER_LENGTH: u16 = 3;
+    const ULONG_LEN: u16 = 4;
+    const FP2_LEN: u16 = 2;
 
-    const battery_data_length: u16 = (2 * ULONG_len) + (2 * FP2_len);
-    const full_data_length: u16 =  (2 * ULONG_len) + (10 * FP2_len);
+    const BATTERY_DATA_LENGTH: u16 = (2 * ULONG_LEN) + (2 * FP2_LEN);
+    const FULL_DATA_LENGTH: u16 =  (2 * ULONG_LEN) + (10 * FP2_LEN);
 
     let mut result = Vec::new();
 
-    if buffer.len() <= header_length as usize {
+    if buffer.len() <= HEADER_LENGTH as usize {
         // Early return if buffer is too short
         result.push(Err(ParseError::EmptyBuffer))
     } else {
         if check_header(&buffer, 2, 1, 9) {
             // Battery data: [2, 1, 9, ...] ULONG, ULONG, FP2, FP2
 
-            if buffer.len() < (header_length + battery_data_length) as usize {
+            if buffer.len() < (HEADER_LENGTH + BATTERY_DATA_LENGTH) as usize {
                 result.push(Err(ParseError::EmptyBuffer))
             } else {
                 result.push(parse_binary_data_battery(&buffer[3..]))
@@ -289,10 +288,10 @@ pub fn parse_binary_data(buffer: &[u8]) -> Vec<Result<StationDataType, ParseErro
         } else if check_header(&buffer, 2, 4, 167) {
             // Full data: [2, 4, 167, ...] ULONG, ULONG, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2
 
-            if buffer.len() < (header_length + full_data_length) as usize {
+            if buffer.len() < (HEADER_LENGTH + FULL_DATA_LENGTH) as usize {
                 result.push(Err(ParseError::EmptyBuffer))
             } else {
-                for chunk in buffer[3..].chunks(full_data_length as usize) {
+                for chunk in buffer[3..].chunks(FULL_DATA_LENGTH as usize) {
                     result.push(parse_binary_data_multiple(&chunk));
                 }
             }
@@ -495,7 +494,7 @@ mod tests {
             wind_max: 0.75,
             wind_direction: 300.6,
             precipitation: 1.0,
-            air_pressure: 1.0
+            air_pressure: 962.0
         })));
     }
 
@@ -521,7 +520,7 @@ mod tests {
             wind_max: 0.75,
             wind_direction: 300.6,
             precipitation: 1.0,
-            air_pressure: 1.0
+            air_pressure: 962.0
         }))]);
     }
 
@@ -540,7 +539,7 @@ mod tests {
             wind_max: 0.75,
             wind_direction: 300.6,
             precipitation: 1.0,
-            air_pressure: 1.0
+            air_pressure: 962.0
         })), Err(ParseError::IOError)]);
     }
 }
