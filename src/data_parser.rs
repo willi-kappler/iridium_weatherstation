@@ -4,8 +4,10 @@
 
 use std::str;
 use std::num;
+use std::io;
 use std::io::Cursor;
 use std::f64::{INFINITY, NEG_INFINITY, NAN};
+use std::error::Error;
 
 use time::{strptime, Tm, Duration};
 use regex::Regex;
@@ -53,18 +55,23 @@ quick_error! {
             description("Invalid data: wrong number of columns (allowed: 3 or 11)")
         }
         ParseFloatError(err: num::ParseFloatError) {
+            from()
             description(err.description())
         }
         Utf8Error(err: str::Utf8Error) {
+            from()
             description(err.description())
+        }
+
+        IOError {
+            description("IOError")
         }
     }
 }
 
-/// To be able to use the try! macro while parsin floating point values
-impl From<num::ParseFloatError> for ParseError {
-    fn from(err: num::ParseFloatError) -> ParseError {
-        ParseError::ParseFloatError(err)
+impl From<io::Error> for ParseError {
+    fn from(err: io::Error) -> ParseError {
+        ParseError::IOError
     }
 }
 
@@ -147,6 +154,30 @@ fn u32_to_timestamp(seconds: u32) -> Tm {
 }
 
 fn u16_to_f64(data: u16) -> f64 {
+    // base16 2 byte floats:
+    // https://en.wikipedia.org/wiki/Half-precision_floating-point_format
+    // https://github.com/sgothel/jogl/blob/master/src/jogl/classes/com/jogamp/opengl/math/Binary16.java
+    // https://books.google.de/books?id=FPlICAAAQBAJ&pg=PA84&lpg=PA84&dq=binary16&source=bl&ots=0FAzD4XOqn&sig=98h_pzPlLzUXjB4uY1T8MRIZOnA&hl=de&sa=X&ved=0ahUKEwjkpvXU5ZzLAhVD9HIKHQOfAxYQ6AEITzAH#v=onepage&q=binary16&f=false
+    // http://www.gamedev.net/topic/557338-ieee-754-2008-binary-16-inaccuracy-in-wikipedia/
+
+    // Campbells own 2 bytes floating point format:
+    // Bits: ABCDEFGH IJKLMNOP
+    //
+    // A: Sign, 0: +, 1: -
+    //
+    // B, C: Decimal position (exponent):
+    // 0, 0: XXXX.
+    // 0, 1: XXX.X
+    // 1, 0: XX.XX
+    // 1, 1: X.XXX
+    //
+    // D: being the MSB
+    //
+    // E-P: 13-bit binary value, Largest 13-bit magnitude (mantissa) is 8191, but Campbell Scientific defines the largest-allowable magnitude as 7999
+    //
+    // More information here:
+    // https://www.campbellsci.com/forum?forum=1&l=thread&tid=540
+
     // 17660 = 252 + (68 * 256) = 01000100 11111100 -> 12.76
     // 17662 = 254 + (68 * 256) = 01000100 11111110 -> 12.78
     // 17664 = 69 * 256 =  01000101 00000000 -> 12.80
@@ -183,105 +214,93 @@ fn check_header(buffer: &[u8], b1: u8, b2: u8, b3: u8) -> bool {
     buffer[0] == b1 && buffer[1] == b2 && buffer[2] == b3
 }
 
+fn parse_binary_data_battery(buffer: &[u8]) -> Result<StationDataType, ParseError> {
+    let mut read_bytes = Cursor::new(&buffer);
+
+    // Time stamp
+    let seconds = try!(read_bytes.read_u32::<LittleEndian>());
+
+    // Should be zero, not needed
+    let _ = try!(read_bytes.read_u32::<LittleEndian>());
+
+    let battery_voltage = try!(read_bytes.read_u16::<BigEndian>());
+
+    Ok(StationDataType::SingleData(u32_to_timestamp(seconds), u16_to_f64(battery_voltage)))
+}
+
+fn parse_binary_data_multiple(buffer: &[u8]) -> Result<StationDataType, ParseError> {
+    let mut read_bytes = Cursor::new(&buffer);
+
+    // Time stamp
+    let seconds = try!(read_bytes.read_u32::<LittleEndian>());
+
+    // Should be zero, not needed
+    let _ = try!(read_bytes.read_u32::<LittleEndian>());
+
+    let air_temperature = try!(read_bytes.read_u16::<BigEndian>());
+    let air_relative_humidity = try!(read_bytes.read_u16::<BigEndian>());
+    let solar_radiation = try!(read_bytes.read_u16::<BigEndian>());;
+    let soil_water_content = try!(read_bytes.read_u16::<BigEndian>());
+    let soil_temperature = try!(read_bytes.read_u16::<BigEndian>());
+    let wind_speed = try!(read_bytes.read_u16::<BigEndian>());
+    let wind_max = try!(read_bytes.read_u16::<BigEndian>());
+    let wind_direction = try!(read_bytes.read_u16::<BigEndian>());
+    let precipitation = try!(read_bytes.read_u16::<BigEndian>());
+    let air_pressure = try!(read_bytes.read_u16::<BigEndian>());
+
+    Ok(StationDataType::MultipleData(WeatherStationData{
+        timestamp: u32_to_timestamp(seconds),
+        air_temperature: u16_to_f64(air_temperature),
+        air_relative_humidity: u16_to_f64(air_relative_humidity),
+        solar_radiation: u16_to_f64(solar_radiation),
+        soil_water_content: u16_to_f64(soil_water_content),
+        soil_temperature: u16_to_f64(soil_temperature),
+        wind_speed: u16_to_f64(wind_speed),
+        wind_max: u16_to_f64(wind_max),
+        wind_direction: u16_to_f64(wind_direction),
+        precipitation: u16_to_f64(precipitation),
+        air_pressure: u16_to_f64(precipitation)
+    }))
+}
+
 /// Parse all the data that is send (as binary) from the weather station.
-pub fn parse_binary_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
-    // base16 2 byte floats:
-    // https://en.wikipedia.org/wiki/Half-precision_floating-point_format
-    // https://github.com/sgothel/jogl/blob/master/src/jogl/classes/com/jogamp/opengl/math/Binary16.java
-    // https://books.google.de/books?id=FPlICAAAQBAJ&pg=PA84&lpg=PA84&dq=binary16&source=bl&ots=0FAzD4XOqn&sig=98h_pzPlLzUXjB4uY1T8MRIZOnA&hl=de&sa=X&ved=0ahUKEwjkpvXU5ZzLAhVD9HIKHQOfAxYQ6AEITzAH#v=onepage&q=binary16&f=false
-    // http://www.gamedev.net/topic/557338-ieee-754-2008-binary-16-inaccuracy-in-wikipedia/
-
-    // Campbells own 2 bytes floating point format:
-    // Bits: ABCDEFGH IJKLMNOP
-    //
-    // A: Sign, 0: +, 1: -
-    //
-    // B, C: Decimal position:
-    // 0, 0: XXXX.
-    // 0, 1: XXX.X
-    // 1, 0: XX.XX
-    // 1, 1: X.XXX
-    //
-    // D: being the MSB
-    //
-    // E-P: 13-bit binary value, Largest 13-bit magnitude is 8191, but Campbell Scientific defines the largest-allowable magnitude as 7999
-    //
-    // More information here:
-    // https://www.campbellsci.com/forum?forum=1&l=thread&tid=540
-
+pub fn parse_binary_data(buffer: &[u8]) -> Vec<Result<StationDataType, ParseError>> {
     const header_length: u16 = 3;
     const ULONG_len: u16 = 4;
     const FP2_len: u16 = 2;
 
-    const battery_data_length: u16 = header_length + (2 * ULONG_len) + (2 * FP2_len);
-    const full_data_length: u16 = header_length + (2 * ULONG_len) + (10 * FP2_len);
+    const battery_data_length: u16 = (2 * ULONG_len) + (2 * FP2_len);
+    const full_data_length: u16 =  (2 * ULONG_len) + (10 * FP2_len);
 
-    if buffer.len() < 4 {
+    let mut result = Vec::new();
+
+    if buffer.len() <= header_length as usize {
         // Early return if buffer is too short
-        Err(ParseError::EmptyBuffer)
+        result.push(Err(ParseError::EmptyBuffer))
     } else {
         if check_header(&buffer, 2, 1, 9) {
             // Battery data: [2, 1, 9, ...] ULONG, ULONG, FP2, FP2
 
-            if buffer.len() < battery_data_length as usize {
-                Err(ParseError::EmptyBuffer)
+            if buffer.len() < (header_length + battery_data_length) as usize {
+                result.push(Err(ParseError::EmptyBuffer))
             } else {
-                let mut read_bytes = Cursor::new(&buffer[3..]);
-
-                // Time stamp
-                let seconds = read_bytes.read_u32::<LittleEndian>().unwrap();
-
-                // Should be zero, not needed
-                let _ = read_bytes.read_u32::<LittleEndian>().unwrap();
-
-                // Usually about 12.5 Volts, FP2 format
-                let battery_voltage = read_bytes.read_u16::<BigEndian>().unwrap();
-
-                Ok(StationDataType::SingleData(u32_to_timestamp(seconds), u16_to_f64(battery_voltage)))
+                result.push(parse_binary_data_battery(&buffer[3..]))
             }
         } else if check_header(&buffer, 2, 4, 167) {
             // Full data: [2, 4, 167, ...] ULONG, ULONG, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2
 
-            if buffer.len() < full_data_length as usize {
-                Err(ParseError::EmptyBuffer)
+            if buffer.len() < (header_length + full_data_length) as usize {
+                result.push(Err(ParseError::EmptyBuffer))
             } else {
-                let mut read_bytes = Cursor::new(&buffer[3..]);
-
-                // Time stamp
-                let seconds = read_bytes.read_u32::<LittleEndian>().unwrap();
-
-                // Should be zero, not needed
-                let _ = read_bytes.read_u32::<LittleEndian>().unwrap();
-
-                let air_temperature = read_bytes.read_u16::<BigEndian>().unwrap();
-                let air_relative_humidity = read_bytes.read_u16::<BigEndian>().unwrap();
-                let solar_radiation = read_bytes.read_u16::<BigEndian>().unwrap();;
-                let soil_water_content = read_bytes.read_u16::<BigEndian>().unwrap();
-                let soil_temperature = read_bytes.read_u16::<BigEndian>().unwrap();
-                let wind_speed = read_bytes.read_u16::<BigEndian>().unwrap();
-                let wind_max = read_bytes.read_u16::<BigEndian>().unwrap();
-                let wind_direction = read_bytes.read_u16::<BigEndian>().unwrap();
-                let precipitation = read_bytes.read_u16::<BigEndian>().unwrap();
-                let air_pressure = read_bytes.read_u16::<BigEndian>().unwrap();
-
-                Ok(StationDataType::MultipleData(WeatherStationData{
-                    timestamp: u32_to_timestamp(seconds),
-                    air_temperature: u16_to_f64(air_temperature),
-                    air_relative_humidity: u16_to_f64(air_relative_humidity),
-                    solar_radiation: u16_to_f64(solar_radiation),
-                    soil_water_content: u16_to_f64(soil_water_content),
-                    soil_temperature: u16_to_f64(soil_temperature),
-                    wind_speed: u16_to_f64(wind_speed),
-                    wind_max: u16_to_f64(wind_max),
-                    wind_direction: u16_to_f64(wind_direction),
-                    precipitation: u16_to_f64(precipitation),
-                    air_pressure: u16_to_f64(precipitation)
-                }))
+                for chunk in buffer[3..].chunks(full_data_length as usize) {
+                    result.push(parse_binary_data_multiple(&chunk));
+                }
             }
         } else {
-            Err(ParseError::InvalidDataHeader)
+            result.push(Err(ParseError::InvalidDataHeader))
         }
     }
+    result
 }
 
 #[cfg(test)]
@@ -289,7 +308,7 @@ mod tests {
     use time::{strptime, Duration};
 
     use super::*;
-    use super::{u32_to_timestamp, u16_to_f64, check_header};
+    use super::{u32_to_timestamp, u16_to_f64, check_header, parse_binary_data_battery, parse_binary_data_multiple};
 
     #[test]
     fn test_parse_text_data_empty() {
@@ -415,55 +434,55 @@ mod tests {
     #[test]
     fn test_parse_binary_data_empty1() {
         let result = parse_binary_data(&[]);
-        assert_eq!(result, Err(ParseError::EmptyBuffer));
+        assert_eq!(result, vec![Err(ParseError::EmptyBuffer)]);
     }
 
     #[test]
     fn test_parse_binary_data_empty2() {
         let result = parse_binary_data(&[1]);
-        assert_eq!(result, Err(ParseError::EmptyBuffer));
+        assert_eq!(result, vec![Err(ParseError::EmptyBuffer)]);
     }
 
     #[test]
     fn test_parse_binary_data_empty3() {
         let result = parse_binary_data(&[1, 2]);
-        assert_eq!(result, Err(ParseError::EmptyBuffer));
+        assert_eq!(result, vec![Err(ParseError::EmptyBuffer)]);
     }
 
     #[test]
     fn test_parse_binary_data_empty4() {
         let result = parse_binary_data(&[1, 2, 3]);
-        assert_eq!(result, Err(ParseError::EmptyBuffer));
+        assert_eq!(result, vec![Err(ParseError::EmptyBuffer)]);
     }
 
     #[test]
     fn test_parse_binary_data_empty5() {
         let result = parse_binary_data(&[2, 1, 9, 0, 0, 0]);
-        assert_eq!(result, Err(ParseError::EmptyBuffer));
+        assert_eq!(result, vec![Err(ParseError::EmptyBuffer)]);
     }
 
     #[test]
     fn test_parse_binary_data_empty6() {
         let result = parse_binary_data(&[2, 4, 167, 0, 0, 0]);
-        assert_eq!(result, Err(ParseError::EmptyBuffer));
+        assert_eq!(result, vec![Err(ParseError::EmptyBuffer)]);
     }
 
     #[test]
     fn test_parse_binary_data_invalid_header() {
         let result = parse_binary_data(&[1, 2, 3, 4]);
-        assert_eq!(result, Err(ParseError::InvalidDataHeader));
+        assert_eq!(result, vec![Err(ParseError::InvalidDataHeader)]);
     }
 
     #[test]
-    fn test_parse_binary_battery1() {
-        let result = parse_binary_data(&[2, 1, 9, 0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 96, 0]);
+    fn test_parse_binary_data_battery() {
+        let result = parse_binary_data_battery(&[0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 96, 0]);
         let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
         assert_eq!(result, Ok(StationDataType::SingleData(datetime, 12.76)));
     }
 
     #[test]
-    fn test_parse_binary_full1() {
-        let result = parse_binary_data(&[2, 4, 167, 0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194]);
+    fn test_parse_binary_data_multiple() {
+        let result = parse_binary_data_multiple(&[0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194]);
         let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
         assert_eq!(result, Ok(StationDataType::MultipleData(WeatherStationData{
             timestamp: datetime,
@@ -478,5 +497,50 @@ mod tests {
             precipitation: 1.0,
             air_pressure: 1.0
         })));
+    }
+
+    #[test]
+    fn test_parse_binary_data1() {
+        let result = parse_binary_data(&[2, 1, 9, 0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 96, 0]);
+        let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
+        assert_eq!(result, vec![Ok(StationDataType::SingleData(datetime, 12.76))]);
+    }
+
+    #[test]
+    fn test_parse_binary_data2() {
+        let result = parse_binary_data(&[2, 4, 167, 0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194]);
+        let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
+        assert_eq!(result, vec![Ok(StationDataType::MultipleData(WeatherStationData{
+            timestamp: datetime,
+            air_temperature: 15.02,
+            air_relative_humidity: 99.7,
+            solar_radiation: 74.17,
+            soil_water_content: 0.077,
+            soil_temperature: 16.36,
+            wind_speed: 0.359,
+            wind_max: 0.75,
+            wind_direction: 300.6,
+            precipitation: 1.0,
+            air_pressure: 1.0
+        }))]);
+    }
+
+    #[test]
+    fn test_parse_binary_data3() {
+        let result = parse_binary_data(&[2, 4, 167, 0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194, 0]);
+        let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
+        assert_eq!(result, vec![Ok(StationDataType::MultipleData(WeatherStationData{
+            timestamp: datetime,
+            air_temperature: 15.02,
+            air_relative_humidity: 99.7,
+            solar_radiation: 74.17,
+            soil_water_content: 0.077,
+            soil_temperature: 16.36,
+            wind_speed: 0.359,
+            wind_max: 0.75,
+            wind_direction: 300.6,
+            precipitation: 1.0,
+            air_pressure: 1.0
+        })), Err(ParseError::IOError)]);
     }
 }

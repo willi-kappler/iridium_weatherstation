@@ -91,6 +91,8 @@ fn port_to_station(port: u16) -> String{
         2102 => "Pan_de_Azucar".to_string(),
         2103 => "La_Campana".to_string(),
         2104 => "Wanne_Tuebingen".to_string(),
+        2001 => "test1".to_string(),
+        2200 => "test2".to_string(),
         _ => "unknown".to_string()
     }
 }
@@ -148,18 +150,20 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
         } else {
             info!("Parse binary data");
 
-            match parse_binary_data(&buffer_right) {
-                Ok(parsed_data) => {
-                    info!("Data parsed correctly");
-                    match db_pool.lock() {
-                        Ok(db_pool) => {
-                            try!(store_to_db(&db_pool, &station_name, &parsed_data));
-                        },
-                        Err(e) => info!("Mutex (poison) error (db_pool): {}", e)
+            for parsed_data in parse_binary_data(&buffer_right) {
+                match parsed_data {
+                    Ok(parsed_data) => {
+                        info!("Data parsed correctly");
+                        match db_pool.lock() {
+                            Ok(db_pool) => {
+                                try!(store_to_db(&db_pool, &station_name, &parsed_data));
+                            },
+                            Err(e) => info!("Mutex (poison) error (db_pool): {}", e)
+                        }
+                    },
+                    Err(e) => {
+                        info!("Could not parse data: {}", e);
                     }
-                },
-                Err(e) => {
-                    info!("Could not parse data: {}", e);
                 }
             }
         }
@@ -268,7 +272,7 @@ mod tests {
                   .db_name(Some("test_weatherstation"));
         let pool = Pool::new(db_builder).unwrap();
 
-        let query_result = store_to_db(&pool, "test1", &StationDataType::SingleData(strptime("2016-06-12 12:13:14",
+        let query_result = store_to_db(&pool, "test_store1", &StationDataType::SingleData(strptime("2016-06-12 12:13:14",
         "%Y-%m-%d %H:%M:%S").unwrap(), 12.73));
         let query_result = query_result.unwrap().unwrap();
         let affected_rows = query_result.affected_rows();
@@ -287,7 +291,7 @@ mod tests {
             let row_timestamp: NaiveDateTime = row_item.get(1).unwrap();
             assert_eq!(row_timestamp, NaiveDateTime::parse_from_str("2016-06-12 12:13:14", "%Y-%m-%d %H:%M:%S").unwrap());
             let row_station: String = row_item.get(2).unwrap();
-            assert_eq!(row_station, "test1");
+            assert_eq!(row_station, "test_store1");
             let row_voltage: f64 = row_item.get(3).unwrap();
             assert_eq!(row_voltage, 12.73);
             count = count + 1;
@@ -295,7 +299,7 @@ mod tests {
 
         assert_eq!(count, 1);
 
-        let delete_result = pool.prep_exec("DELETE FROM battery_data WHERE station = 'test1'", ()).unwrap();
+        let delete_result = pool.prep_exec("DELETE FROM battery_data WHERE station = 'test_store1'", ()).unwrap();
         assert_eq!(delete_result.affected_rows(), 1);
     }
 
@@ -311,7 +315,7 @@ mod tests {
                   .db_name(Some("test_weatherstation"));
         let pool = Pool::new(db_builder).unwrap();
 
-        let query_result = store_to_db(&pool, "test2", &StationDataType::MultipleData(WeatherStationData{
+        let query_result = store_to_db(&pool, "test_store2", &StationDataType::MultipleData(WeatherStationData{
             timestamp: strptime("2016-06-15 15:16:17", "%Y-%m-%d %H:%M:%S").unwrap(),
             air_temperature: 18.15,
             air_relative_humidity: 65.31,
@@ -341,7 +345,7 @@ mod tests {
             let row_timestamp: NaiveDateTime = row_item.get(1).unwrap();
             assert_eq!(row_timestamp, NaiveDateTime::parse_from_str("2016-06-15 15:16:17", "%Y-%m-%d %H:%M:%S").unwrap());
             let row_station: String = row_item.get(2).unwrap();
-            assert_eq!(row_station, "test2");
+            assert_eq!(row_station, "test_store2");
             let row_air_temperature: f64 = row_item.get(3).unwrap();
             assert_eq!(row_air_temperature, 18.15);
             let row_air_relative_humidity: f64 = row_item.get(4).unwrap();
@@ -367,7 +371,7 @@ mod tests {
 
         assert_eq!(count, 1);
 
-        let delete_result = pool.prep_exec("DELETE FROM multiple_data WHERE station = 'test2'", ()).unwrap();
+        let delete_result = pool.prep_exec("DELETE FROM multiple_data WHERE station = 'test_store2'", ()).unwrap();
         assert_eq!(delete_result.affected_rows(), 1);
     }
 
@@ -419,7 +423,7 @@ mod tests {
 
         info!("DB connection successfull!");
 
-        let select_result = pool.prep_exec("SELECT * FROM battery_data WHERE station = 'unknown'", ()).unwrap();
+        let select_result = pool.prep_exec("SELECT * FROM battery_data WHERE station = 'test1'", ()).unwrap();
 
         let mut count = 0;
 
@@ -429,16 +433,87 @@ mod tests {
             let row_timestamp: NaiveDateTime = row_item.get(1).unwrap();
             assert_eq!(row_timestamp, NaiveDateTime::parse_from_str("2016-04-17 17:29:22", "%Y-%m-%d %H:%M:%S").unwrap());
             let row_station: String = row_item.get(2).unwrap();
-            assert_eq!(row_station, "unknown");
+            assert_eq!(row_station, "test1");
             let row_voltage: f64 = row_item.get(3).unwrap();
             assert_eq!(row_voltage, 7.53);
             count = count + 1;
         }
         assert_eq!(count, 1);
 
-        let delete_result = pool.prep_exec("DELETE FROM battery_data WHERE station = 'unknown'", ()).unwrap();
+        let delete_result = pool.prep_exec("DELETE FROM battery_data WHERE station = 'test1'", ()).unwrap();
         assert_eq!(delete_result.affected_rows(), 1);
     }
+
+    #[test]
+    fn test_server2() {
+        let _ = init(LogConfig { log_to_file: true, format: detailed_format, .. LogConfig::new() }, Some("info".to_string()));
+
+        let config = Configuration {
+            ports: vec![2200],
+            log_level: "info".to_string(),
+            hostname: "localhost".to_string(),
+            db_name: "test_weatherstation".to_string(),
+            username: "test".to_string(),
+            password: "test".to_string()
+        };
+
+        start_service(&config);
+
+        info!("Wait for server...");
+
+        // Wait for the server to start up.
+        sleep(Duration::new(1, 0));
+
+        info!("Wait end!");
+
+        {
+            // Connect to local server
+            let mut stream = TcpStream::connect("127.0.0.1:2200").unwrap();
+
+            let result = stream.write(&vec![0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,1,9,0,141,64,50,0,0,0,0,68,252,96,0]);
+            assert!(result.is_ok());
+        } // Socket gets closed here!
+
+        info!("Wait for client...");
+
+        // Wait for the client to submit the data.
+        // Wait for the server to parse and process the data.
+        sleep(Duration::new(1, 0));
+
+        info!("Wait end!");
+
+        let mut db_builder = OptsBuilder::new();
+        db_builder.ip_or_hostname(Some("localhost"))
+                  .tcp_port(3306)
+                  .user(Some("test"))
+                  .pass(Some("test"))
+                  .db_name(Some("test_weatherstation"));
+        let pool = Pool::new(db_builder).unwrap();
+
+        info!("DB connection successfull!");
+
+        let select_result = pool.prep_exec("SELECT * FROM battery_data WHERE station = 'test2'", ()).unwrap();
+
+        let mut count = 0;
+
+        for opt_item in select_result {
+            let mut row_item = opt_item.unwrap();
+            assert_eq!(row_item.len(), 4);
+            let row_timestamp: NaiveDateTime = row_item.get(1).unwrap();
+            assert_eq!(row_timestamp, NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap());
+            let row_station: String = row_item.get(2).unwrap();
+            assert_eq!(row_station, "test2");
+            let row_voltage: f64 = row_item.get(3).unwrap();
+            assert_eq!(row_voltage, 12.76);
+            count = count + 1;
+        }
+        assert_eq!(count, 1);
+
+        let delete_result = pool.prep_exec("DELETE FROM battery_data WHERE station = 'test2'", ()).unwrap();
+        assert_eq!(delete_result.affected_rows(), 1);
+    }
+
 
     // Test server:
     // echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"2016-07-06 00:00:00",12.71,0 | nc localhost 2001
