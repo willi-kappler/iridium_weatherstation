@@ -209,10 +209,6 @@ fn u16_to_f64(data: u16) -> f64 {
     }
 }
 
-fn check_header(buffer: &[u8], b1: u8, b2: u8, b3: u8) -> bool {
-    buffer[0] == b1 && buffer[1] == b2 && buffer[2] == b3
-}
-
 fn parse_binary_data_battery(buffer: &[u8]) -> Result<StationDataType, ParseError> {
     let mut read_bytes = Cursor::new(&buffer);
 
@@ -277,28 +273,31 @@ pub fn parse_binary_data(buffer: &[u8]) -> Vec<Result<StationDataType, ParseErro
         // Early return if buffer is too short
         result.push(Err(ParseError::EmptyBuffer))
     } else {
-        if check_header(&buffer, 2, 1, 9) {
-            // Battery data: [2, 1, 9, ...] ULONG, ULONG, FP2, FP2
+        if buffer[0] == 2 {
+            let high = buffer[1] as u16;
+            let low = buffer[2] as u16;
+            let data_length = low + (255 * high);
 
-            if buffer.len() < (HEADER_LENGTH + BATTERY_DATA_LENGTH) as usize {
-                result.push(Err(ParseError::EmptyBuffer))
-            } else {
-                result.push(parse_binary_data_battery(&buffer[3..]))
+            if (data_length as usize) != buffer.len() - 3 {
+                info!("Data header incorrect, data_length: {}, actual length: {}", data_length, buffer.len() - 3)
             }
-        } else if check_header(&buffer, 2, 4, 167) {
-            // Full data: [2, 4, 167, ...] ULONG, ULONG, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2, FP2
 
-            if buffer.len() < (HEADER_LENGTH + FULL_DATA_LENGTH) as usize {
-                result.push(Err(ParseError::EmptyBuffer))
-            } else {
+            if buffer.len() == (HEADER_LENGTH + BATTERY_DATA_LENGTH) as usize {
+                // Looks like battery data
+                result.push(parse_binary_data_battery(&buffer[3..]))
+            } else if buffer.len() >= (HEADER_LENGTH + FULL_DATA_LENGTH) as usize {
+                // Looks like multiple data
                 for chunk in buffer[3..].chunks(FULL_DATA_LENGTH as usize) {
                     result.push(parse_binary_data_multiple(&chunk));
                 }
+            } else {
+                result.push(Err(ParseError::InvalidDataHeader))
             }
         } else {
             result.push(Err(ParseError::InvalidDataHeader))
         }
     }
+
     result
 }
 
@@ -307,7 +306,7 @@ mod tests {
     use time::{strptime, Duration};
 
     use super::*;
-    use super::{u32_to_timestamp, u16_to_f64, check_header, parse_binary_data_battery, parse_binary_data_multiple};
+    use super::{u32_to_timestamp, u16_to_f64, parse_binary_data_battery, parse_binary_data_multiple};
 
     #[test]
     fn test_parse_text_data_empty() {
@@ -366,31 +365,6 @@ mod tests {
             57, 58, 48, 48, 58, 48, 48, 34, 44, 55, 46, 53, 54, 44, 51, 50, 46, 50, 53, 44, 49,
             46, 51, 51, 51, 44, 48, 46, 48, 50, 50, 44, 49, 53, 46, 49, 56, 44, 48, 46, 55]);
         assert_eq!(result, Err(ParseError::WrongNumberOfColumns));
-    }
-
-    #[test]
-    fn test_check_header1() {
-        assert!(check_header(&[1, 2, 3], 1, 2, 3));
-    }
-
-    #[test]
-    fn test_check_header2() {
-        assert!(check_header(&[5, 12, 33], 5, 12, 33));
-    }
-
-    #[test]
-    fn test_check_header3() {
-        assert!(!check_header(&[5, 12, 33], 1, 12, 33));
-    }
-
-    #[test]
-    fn test_check_header4() {
-        assert!(!check_header(&[5, 12, 33], 5, 1, 33));
-    }
-
-    #[test]
-    fn test_check_header5() {
-        assert!(!check_header(&[5, 12, 33], 5, 12, 1));
     }
 
     #[test]
@@ -457,13 +431,13 @@ mod tests {
     #[test]
     fn test_parse_binary_data_empty5() {
         let result = parse_binary_data(&[2, 1, 9, 0, 0, 0]);
-        assert_eq!(result, vec![Err(ParseError::EmptyBuffer)]);
+        assert_eq!(result, vec![Err(ParseError::InvalidDataHeader)]);
     }
 
     #[test]
     fn test_parse_binary_data_empty6() {
         let result = parse_binary_data(&[2, 4, 167, 0, 0, 0]);
-        assert_eq!(result, vec![Err(ParseError::EmptyBuffer)]);
+        assert_eq!(result, vec![Err(ParseError::InvalidDataHeader)]);
     }
 
     #[test]
@@ -500,14 +474,14 @@ mod tests {
 
     #[test]
     fn test_parse_binary_data1() {
-        let result = parse_binary_data(&[2, 1, 9, 0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 96, 0]);
+        let result = parse_binary_data(&[2, 0, 12, 0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 96, 0]);
         let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
         assert_eq!(result, vec![Ok(StationDataType::SingleData(datetime, 12.76))]);
     }
 
     #[test]
     fn test_parse_binary_data2() {
-        let result = parse_binary_data(&[2, 4, 167, 0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194]);
+        let result = parse_binary_data(&[2, 0, 28, 0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194]);
         let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
         assert_eq!(result, vec![Ok(StationDataType::MultipleData(WeatherStationData{
             timestamp: datetime,
@@ -526,7 +500,7 @@ mod tests {
 
     #[test]
     fn test_parse_binary_data3() {
-        let result = parse_binary_data(&[2, 4, 167, 0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194, 0]);
+        let result = parse_binary_data(&[2, 0, 28, 0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194, 0]);
         let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
         assert_eq!(result, vec![Ok(StationDataType::MultipleData(WeatherStationData{
             timestamp: datetime,
