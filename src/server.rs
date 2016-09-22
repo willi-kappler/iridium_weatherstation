@@ -120,14 +120,14 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
 
         let (buffer_left, buffer_right) = buffer.split_at(HEADER_LENGTH);
 
-        let str_header = String::from_utf8_lossy(buffer_left);
-        let str_data = String::from_utf8_lossy(buffer_right);
+        // let str_header = String::from_utf8_lossy(buffer_left);
+        // let str_data = String::from_utf8_lossy(buffer_right);
 
-        info!("Header: {:?}", buffer_left);
+        // info!("Header: {:?}", buffer_left);
         info!("Data: {:?}", buffer_right);
 
-        info!("Header (ASCII) ({}): '{}'", &station_name, str_header);
-        info!("Data (ASCII) ({}): '{}'", &station_name, str_data);
+        // info!("Header (ASCII) ({}): '{}'", &station_name, str_header);
+        // info!("Data (ASCII) ({}): '{}'", &station_name, str_data);
 
         // Quick hack for now, remove later when everything is binary
         if local_port < 2104 {

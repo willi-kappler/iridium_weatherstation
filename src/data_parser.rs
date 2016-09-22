@@ -276,7 +276,7 @@ pub fn parse_binary_data(buffer: &[u8]) -> Vec<Result<StationDataType, ParseErro
         if buffer[0] == 2 {
             let high = buffer[1] as u16;
             let low = buffer[2] as u16;
-            let data_length = low + (255 * high);
+            let data_length = low + (256 * high);
 
             if (data_length as usize) != buffer.len() - 3 {
                 info!("Data header incorrect, data_length: {}, actual length: {}", data_length, buffer.len() - 3)
