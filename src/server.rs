@@ -113,7 +113,7 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
     let mut buffer = Vec::new();
 
     let len = try!(stream.read_to_end(&mut buffer));
-    info!("Number of bytes received: {}", len);
+    info!("[{}] Number of bytes received: {}", local_port, len);
 
     if buffer.len() > HEADER_LENGTH {
         let station_name = port_to_station(local_port);
@@ -124,7 +124,7 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
         // let str_data = String::from_utf8_lossy(buffer_right);
 
         // info!("Header: {:?}", buffer_left);
-        info!("Data: {:?}", buffer_right);
+        info!("[{}] Data: {:?}", local_port, buffer_right);
 
         // info!("Header (ASCII) ({}): '{}'", &station_name, str_header);
         // info!("Data (ASCII) ({}): '{}'", &station_name, str_data);
@@ -168,13 +168,13 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
             }
         }
     } else if buffer.len() < HEADER_LENGTH {
-        info!("Invalid header (less than {} bytes received)!", HEADER_LENGTH);
-        info!("Bytes: {:?}", buffer);
-        info!("Bytes (ASCII): '{}'", String::from_utf8_lossy(&buffer));
+        info!("[{}] Invalid header (less than {} bytes received)!", local_port, HEADER_LENGTH);
+        info!("[{}] Bytes: {:?}", local_port, buffer);
+        // info!("Bytes (ASCII): '{}'", String::from_utf8_lossy(&buffer));
     } else { // buffer.len() == HEADER_LENGTH -> no data, only header
-        info!("No data received, just header.");
-        info!("Bytes: {:?}", buffer);
-        info!("Bytes (ASCII): '{}'", String::from_utf8_lossy(&buffer));
+        info!("[{}] No data received, just header.", local_port);
+        info!("[{}] Bytes: {:?}", local_port, buffer);
+        // info!("Bytes (ASCII): '{}'", String::from_utf8_lossy(&buffer));
     }
 
     info!("handle_client finished");
