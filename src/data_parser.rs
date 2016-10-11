@@ -1,6 +1,5 @@
 //! Parse incomming data
-//! Currently text based CSV data
-//! Will change to binary in the future
+//! Support for CSV abd binary data
 
 use std::str;
 use std::num;
@@ -31,8 +30,8 @@ pub struct WeatherStationData {
 /// Wrapper type: do we have just battery data or everything else ?
 #[derive(Debug, Clone, PartialEq)]
 pub enum StationDataType {
-    /// Single data is just the time stamp and the battery voltage
-    SingleData(Tm, f64),
+    /// Simple data is just the time stamp, two battery voltage and wind.
+    SimpleData(Tm, f64, f64, f64),
     /// Multipe data contains the time stamp and all the other data values
     MultipleData(WeatherStationData)
 }
@@ -125,7 +124,7 @@ pub fn parse_text_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
 
                         match battery_voltage {
                             Ok(value) => {
-                                Ok(StationDataType::SingleData(timestamp, value))
+                                Ok(StationDataType::SimpleData(timestamp, value, 0.0, 0.0))
                             },
                             Err(e) => {
                                 Err(ParseError::ParseFloatError(e))
@@ -218,9 +217,15 @@ fn parse_binary_data_battery(buffer: &[u8]) -> Result<StationDataType, ParseErro
     // Should be zero, not needed
     let _ = try!(read_bytes.read_u32::<LittleEndian>());
 
-    let battery_voltage = try!(read_bytes.read_u16::<BigEndian>());
+    let solar_battery_voltage = try!(read_bytes.read_u16::<BigEndian>());
+    let lithium_battery_voltage = try!(read_bytes.read_u16::<BigEndian>());
+    let wind_dir = try!(read_bytes.read_u16::<BigEndian>());
 
-    Ok(StationDataType::SingleData(u32_to_timestamp(seconds), u16_to_f64(battery_voltage)))
+    Ok(StationDataType::SimpleData(u32_to_timestamp(seconds),
+                                   u16_to_f64(solar_battery_voltage),
+                                   u16_to_f64(lithium_battery_voltage),
+                                   u16_to_f64(wind_dir)
+                                   ))
 }
 
 fn parse_binary_data_multiple(buffer: &[u8]) -> Result<StationDataType, ParseError> {
@@ -264,7 +269,7 @@ pub fn parse_binary_data(buffer: &[u8]) -> Vec<Result<StationDataType, ParseErro
     const ULONG_LEN: u16 = 4;
     const FP2_LEN: u16 = 2;
 
-    const BATTERY_DATA_LENGTH: u16 = (2 * ULONG_LEN) + (2 * FP2_LEN);
+    const BATTERY_DATA_LENGTH: u16 = (2 * ULONG_LEN) + (3 * FP2_LEN);
     const FULL_DATA_LENGTH: u16 =  (2 * ULONG_LEN) + (10 * FP2_LEN);
 
     let mut result = Vec::new();
@@ -356,7 +361,7 @@ mod tests {
     fn test_parse_text_data_correct2() { // Only battery data
         let result = parse_text_data(&[2, 0, 30, 34, 50, 48, 49, 54, 45, 48, 54, 45, 49, 50, 32, 48,
             48, 58, 48, 48, 58, 48, 48, 34, 44, 49, 50, 46, 55, 51, 44, 48, 10]);
-        assert_eq!(result, Ok(StationDataType::SingleData(strptime("2016-06-12 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap(), 12.73)));
+        assert_eq!(result, Ok(StationDataType::SimpleData(strptime("2016-06-12 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap(), 12.73, 0.0, 0.0)));
     }
 
     #[test]
@@ -448,9 +453,9 @@ mod tests {
 
     #[test]
     fn test_parse_binary_data_battery() {
-        let result = parse_binary_data_battery(&[0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 96, 0]);
+        let result = parse_binary_data_battery(&[0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 96, 0, 0, 0]);
         let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
-        assert_eq!(result, Ok(StationDataType::SingleData(datetime, 12.76)));
+        assert_eq!(result, Ok(StationDataType::SimpleData(datetime, 12.76, 0.0, 0.0)));
     }
 
     #[test]
@@ -474,9 +479,9 @@ mod tests {
 
     #[test]
     fn test_parse_binary_data1() {
-        let result = parse_binary_data(&[2, 0, 12, 0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 96, 0]);
+        let result = parse_binary_data(&[2, 0, 12, 0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 96, 0, 0, 0]);
         let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
-        assert_eq!(result, vec![Ok(StationDataType::SingleData(datetime, 12.76))]);
+        assert_eq!(result, vec![Ok(StationDataType::SimpleData(datetime, 12.76, 0.0, 0.0))]);
     }
 
     #[test]

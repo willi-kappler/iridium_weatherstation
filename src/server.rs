@@ -30,11 +30,27 @@ fn store_to_db<'a>(db_pool: &Pool, station_name: &str, data: &StationDataType) -
     let datetime_format = "%Y-%m-%d %H:%M:%S";
 
     match data {
-        &StationDataType::SingleData(timestamp_tm, voltage) => {
+        &StationDataType::SimpleData(timestamp_tm, voltage1, voltage2, wind_dir) => {
             let timestamp = try!(timestamp_tm.strftime(&datetime_format));
-            let result = try!(db_pool.prep_exec("INSERT INTO battery_data (timestamp, station,
-                battery_voltage) VALUES (:timestamp, :station, :battery_voltage)",
-                (Value::from(timestamp.to_string()), Value::from(station_name), Value::from(voltage))));
+            let result = try!(db_pool.prep_exec("INSERT INTO battery_data (
+                      timestamp,
+                      station,
+                      battery_voltage,
+                      li_battery_voltage,
+                      wind_dir
+                   ) VALUES (
+                      :timestamp,
+                      :station,
+                      :battery_voltage,
+                      :li_battery_voltage,
+                      :wind_dir
+                   )", (
+                   Value::from(timestamp.to_string()),
+                   Value::from(station_name),
+                   Value::from(voltage1),
+                   Value::from(voltage2),
+                   Value::from(wind_dir)
+                      )));
             return Ok(Some(result));
         },
         &StationDataType::MultipleData(ref full_data_set) => {
@@ -272,8 +288,8 @@ mod tests {
                   .db_name(Some("test_weatherstation"));
         let pool = Pool::new(db_builder).unwrap();
 
-        let query_result = store_to_db(&pool, "test_store1", &StationDataType::SingleData(strptime("2016-06-12 12:13:14",
-        "%Y-%m-%d %H:%M:%S").unwrap(), 12.73));
+        let query_result = store_to_db(&pool, "test_store1", &StationDataType::SimpleData(strptime("2016-06-12 12:13:14",
+        "%Y-%m-%d %H:%M:%S").unwrap(), 12.73, 0.0, 0.0));
         let query_result = query_result.unwrap().unwrap();
         let affected_rows = query_result.affected_rows();
         assert_eq!(affected_rows, 1);
@@ -285,7 +301,7 @@ mod tests {
 
         for opt_item in select_result {
             let mut row_item = opt_item.unwrap();
-            assert_eq!(row_item.len(), 4);
+            assert_eq!(row_item.len(), 6);
             let row_id: u64 = row_item.get(0).unwrap();
             assert_eq!(row_id, last_insert_id);
             let row_timestamp: NaiveDateTime = row_item.get(1).unwrap();
@@ -388,6 +404,20 @@ mod tests {
             password: "test".to_string()
         };
 
+        let mut db_builder = OptsBuilder::new();
+        db_builder.ip_or_hostname(Some("localhost"))
+                  .tcp_port(3306)
+                  .user(Some("test"))
+                  .pass(Some("test"))
+                  .db_name(Some("test_weatherstation"));
+        let pool = Pool::new(db_builder).unwrap();
+
+        info!("DB connection successfull!");
+
+        
+        // Make sure that there is no old data laying around
+        let _ = pool.prep_exec("DELETE FROM battery_data WHERE station = 'test1'", ()).unwrap();
+
         start_service(&config);
 
         info!("Wait for server...");
@@ -413,23 +443,13 @@ mod tests {
 
         info!("Wait end!");
 
-        let mut db_builder = OptsBuilder::new();
-        db_builder.ip_or_hostname(Some("localhost"))
-                  .tcp_port(3306)
-                  .user(Some("test"))
-                  .pass(Some("test"))
-                  .db_name(Some("test_weatherstation"));
-        let pool = Pool::new(db_builder).unwrap();
-
-        info!("DB connection successfull!");
-
         let select_result = pool.prep_exec("SELECT * FROM battery_data WHERE station = 'test1'", ()).unwrap();
 
         let mut count = 0;
 
         for opt_item in select_result {
             let mut row_item = opt_item.unwrap();
-            assert_eq!(row_item.len(), 4);
+            assert_eq!(row_item.len(), 6);
             let row_timestamp: NaiveDateTime = row_item.get(1).unwrap();
             assert_eq!(row_timestamp, NaiveDateTime::parse_from_str("2016-04-17 17:29:22", "%Y-%m-%d %H:%M:%S").unwrap());
             let row_station: String = row_item.get(2).unwrap();
@@ -457,6 +477,19 @@ mod tests {
             password: "test".to_string()
         };
 
+        let mut db_builder = OptsBuilder::new();
+        db_builder.ip_or_hostname(Some("localhost"))
+                  .tcp_port(3306)
+                  .user(Some("test"))
+                  .pass(Some("test"))
+                  .db_name(Some("test_weatherstation"));
+        let pool = Pool::new(db_builder).unwrap();
+
+        info!("DB connection successfull!");
+
+        // Make sure that there is no old data laying around
+        let _ = pool.prep_exec("DELETE FROM battery_data WHERE station = 'test2'", ()).unwrap();
+        
         start_service(&config);
 
         info!("Wait for server...");
@@ -471,7 +504,7 @@ mod tests {
             let mut stream = TcpStream::connect("127.0.0.1:2200").unwrap();
 
             let result = stream.write(&vec![0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,12,0,141,64,50,0,0,0,0,68,252,96,0]);
+                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,12,0,141,64,50,0,0,0,0,68,252,96,0,0,0]);
             assert!(result.is_ok());
         } // Socket gets closed here!
 
@@ -483,23 +516,13 @@ mod tests {
 
         info!("Wait end!");
 
-        let mut db_builder = OptsBuilder::new();
-        db_builder.ip_or_hostname(Some("localhost"))
-                  .tcp_port(3306)
-                  .user(Some("test"))
-                  .pass(Some("test"))
-                  .db_name(Some("test_weatherstation"));
-        let pool = Pool::new(db_builder).unwrap();
-
-        info!("DB connection successfull!");
-
         let select_result = pool.prep_exec("SELECT * FROM battery_data WHERE station = 'test2'", ()).unwrap();
 
         let mut count = 0;
 
         for opt_item in select_result {
             let mut row_item = opt_item.unwrap();
-            assert_eq!(row_item.len(), 4);
+            assert_eq!(row_item.len(), 6);
             let row_timestamp: NaiveDateTime = row_item.get(1).unwrap();
             assert_eq!(row_timestamp, NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap());
             let row_station: String = row_item.get(2).unwrap();
