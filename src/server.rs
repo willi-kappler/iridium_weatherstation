@@ -146,7 +146,7 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
         // info!("Data (ASCII) ({}): '{}'", &station_name, str_data);
 
         // Quick hack for now, remove later when everything is binary
-        if local_port < 2104 {
+        if local_port == 2101 || local_port == 2102 || local_port == 2103 {
             info!("Parse text data");
 
             match parse_text_data(&buffer_right) {
@@ -414,7 +414,7 @@ mod tests {
 
         info!("DB connection successfull!");
 
-        
+
         // Make sure that there is no old data laying around
         let _ = pool.prep_exec("DELETE FROM battery_data WHERE station = 'test1'", ()).unwrap();
 
@@ -489,7 +489,7 @@ mod tests {
 
         // Make sure that there is no old data laying around
         let _ = pool.prep_exec("DELETE FROM battery_data WHERE station = 'test2'", ()).unwrap();
-        
+
         start_service(&config);
 
         info!("Wait for server...");
