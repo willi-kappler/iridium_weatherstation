@@ -19,14 +19,29 @@ use data_parser::{parse_text_data, parse_binary_data, StationDataType};
 
 quick_error! {
     #[derive(Debug)]
-    enum StoreDataError {
+    pub enum StoreDataError {
         IOError(error: io::Error) { from() }
         MySQLError(error: mysql::Error) { from() }
         TimeParseError(error: time::ParseError) { from() }
     }
 }
 
-fn store_to_db<'a>(db_pool: &Pool, station_name: &str, data: &StationDataType) -> Result<Option<QueryResult<'a>>, StoreDataError> {
+pub fn init_db(config: &Configuration) -> Pool {
+    let mut db_builder = OptsBuilder::new();
+    db_builder.ip_or_hostname(Some(config.hostname.as_ref()))
+           .db_name(Some(config.db_name.as_ref()))
+           .user(Some(config.username.as_ref()))
+           .pass(Some(config.password.as_ref()));
+    match Pool::new(db_builder) {
+        Ok(db_pool) => db_pool,
+        Err(e) => {
+            info!("Database error: {}", e);
+            process::exit(1);
+        }
+    }
+}
+
+pub fn store_to_db<'a>(db_pool: &Pool, station_name: &str, data: &StationDataType) -> Result<Option<QueryResult<'a>>, StoreDataError> {
     let datetime_format = "%Y-%m-%d %H:%M:%S";
 
     match data {
@@ -166,10 +181,10 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
         } else {
             info!("Parse binary data");
 
-            for parsed_data in parse_binary_data(&buffer_right) {
-                match parsed_data {
-                    Ok(parsed_data) => {
-                        info!("Data parsed correctly");
+            for (counter, parsed_data) in parse_binary_data(&buffer_right).iter().enumerate() {
+                match *parsed_data {
+                    Ok(ref parsed_data) => {
+                        info!("Data parsed correctly ({})", counter);
                         match db_pool.lock() {
                             Ok(db_pool) => {
                                 try!(store_to_db(&db_pool, &station_name, &parsed_data));
@@ -177,7 +192,7 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
                             Err(e) => info!("Mutex (poison) error (db_pool): {}", e)
                         }
                     },
-                    Err(e) => {
+                    Err(ref e) => {
                         info!("Could not parse data: {}", e);
                     }
                 }
@@ -214,20 +229,7 @@ pub fn start_service(config: &Configuration) {
         }
     }
 
-    let mut db_builder = OptsBuilder::new();
-    db_builder.ip_or_hostname(Some(config.hostname.as_ref()))
-           .db_name(Some(config.db_name.as_ref()))
-           .user(Some(config.username.as_ref()))
-           .pass(Some(config.password.as_ref()));
-    let db_pool = match Pool::new(db_builder) {
-        Ok(db_pool) => db_pool,
-        Err(e) => {
-            info!("Database error: {}", e);
-            process::exit(1);
-        }
-    };
-
-    let db_pool = Arc::new(Mutex::new(db_pool));
+    let db_pool = Arc::new(Mutex::new(init_db(&config)));
 
     for listener in listeners {
         let cloned_pool = db_pool.clone();
@@ -402,7 +404,8 @@ mod tests {
             db_name: "test_weatherstation".to_string(),
             username: "test".to_string(),
             password: "test".to_string(),
-            binary_filename: None
+            binary_filename: None,
+            binary_station_name: None
         };
 
         let mut db_builder = OptsBuilder::new();
@@ -476,7 +479,8 @@ mod tests {
             db_name: "test_weatherstation".to_string(),
             username: "test".to_string(),
             password: "test".to_string(),
-            binary_filename: None
+            binary_filename: None,
+            binary_station_name: None
         };
 
         let mut db_builder = OptsBuilder::new();
