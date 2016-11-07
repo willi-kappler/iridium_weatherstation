@@ -606,6 +606,15 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert!(result[0].is_ok());
+
+        let data = result[0].as_ref().unwrap();
+
+        assert_eq!(*data, StationDataType::SimpleData(
+            strptime("2016-11-05 0:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0),
+            12.94,
+            3.463,
+            0.0
+        ));
     }
 
 }
