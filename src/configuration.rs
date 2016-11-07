@@ -19,7 +19,8 @@ pub struct Configuration {
     pub db_name: String,
     pub username: String,
     pub password: String,
-    pub binary_filename : Option<String>
+    pub binary_filename : Option<String>,
+    pub binary_station_name: Option<String>
 }
 
 fn default_ports() -> Vec<u16> {
@@ -90,9 +91,15 @@ pub fn setup_configuration() -> Configuration {
             .takes_value(true)
         )
         .arg(
-            Arg::with_name("read_binary")
-            .long("read_binary")
+            Arg::with_name("binary_filename")
+            .long("binary_filename")
             .help("Read in binary data from file and put it into the database, exit afterwards.")
+            .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("binary_station_name")
+            .long("binary_station_name")
+            .help("The staion name when reading in binary data")
             .takes_value(true)
         )
         .get_matches();
@@ -127,8 +134,13 @@ pub fn setup_configuration() -> Configuration {
             _ => "none"
         };
 
-        let binary_filename = match matches.value_of("read_binary") {
+        let binary_filename = match matches.value_of("binary_filename") {
             Some(filename) => Some(filename.to_string()),
+            _ => None
+        };
+
+        let binary_station_name = match matches.value_of("binary_station_name") {
+            Some(station_name) => Some(station_name.to_string()),
             _ => None
         };
 
@@ -139,7 +151,8 @@ pub fn setup_configuration() -> Configuration {
             db_name: db_name.to_string(),
             username: username.to_string(),
             password: password.to_string(),
-            binary_filename: binary_filename
+            binary_filename: binary_filename,
+            binary_station_name: binary_station_name
         }
 }
 
@@ -155,7 +168,8 @@ mod tests {
             db_name: "weatherstation".to_string(),
             username: "root".to_string(),
             password: "none".to_string(),
-            binary_filename: None
+            binary_filename: None,
+            binary_station_name: None
         });
     }
 
