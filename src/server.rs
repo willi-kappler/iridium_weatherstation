@@ -134,7 +134,7 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
     if buffer.len() > HEADER_LENGTH {
         let station_name = port_to_station(local_port);
 
-        let (buffer_left, buffer_right) = buffer.split_at(HEADER_LENGTH);
+        let (_, buffer_right) = buffer.split_at(HEADER_LENGTH);
 
         // let str_header = String::from_utf8_lossy(buffer_left);
         // let str_data = String::from_utf8_lossy(buffer_right);
@@ -401,7 +401,8 @@ mod tests {
             hostname: "localhost".to_string(),
             db_name: "test_weatherstation".to_string(),
             username: "test".to_string(),
-            password: "test".to_string()
+            password: "test".to_string(),
+            binary_filename: None
         };
 
         let mut db_builder = OptsBuilder::new();
@@ -474,7 +475,8 @@ mod tests {
             hostname: "localhost".to_string(),
             db_name: "test_weatherstation".to_string(),
             username: "test".to_string(),
-            password: "test".to_string()
+            password: "test".to_string(),
+            binary_filename: None
         };
 
         let mut db_builder = OptsBuilder::new();

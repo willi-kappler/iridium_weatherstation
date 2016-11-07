@@ -6,6 +6,8 @@ use std::num;
 use std::io;
 use std::io::Cursor;
 use std::f64::{INFINITY, NEG_INFINITY, NAN};
+use std::fs::File;
+use std::io::Read;
 
 use time::{strptime, Tm, Duration};
 use regex::Regex;
@@ -60,15 +62,18 @@ quick_error! {
             from()
             description(err.description())
         }
-
         IOError {
             description("IOError")
+        }
+        ParseIntError(err: num::ParseIntError) {
+            from()
+            description(err.description())
         }
     }
 }
 
 impl From<io::Error> for ParseError {
-    fn from(err: io::Error) -> ParseError {
+    fn from(_: io::Error) -> ParseError {
         ParseError::IOError
     }
 }
@@ -306,12 +311,36 @@ pub fn parse_binary_data(buffer: &[u8]) -> Vec<Result<StationDataType, ParseErro
     result
 }
 
+fn open_and_read_file(filename: &str) -> Result<Vec<u8>, ParseError> {
+    let mut f = try!(File::open(filename));
+
+    let mut whole_file = String::new();
+
+    try!(f.read_to_string(&mut whole_file));
+
+    let mut result = Vec::new();
+
+    for item in whole_file.split(',') {
+        let value = try!(item.trim().parse::<u8>());
+        result.push(value);
+    }
+
+    Ok(result)
+}
+
+pub fn parse_binary_data_from_file(filename: &str) -> Vec<Result<StationDataType, ParseError>> {
+    match open_and_read_file(filename) {
+        Ok(data) => parse_binary_data(&data),
+        Err(e) => vec![Err(e)]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use time::{strptime, Duration};
 
     use super::*;
-    use super::{u32_to_timestamp, u16_to_f64, parse_binary_data_battery, parse_binary_data_multiple};
+    use super::{u32_to_timestamp, u16_to_f64, parse_binary_data_battery, parse_binary_data_multiple, open_and_read_file};
 
     #[test]
     fn test_parse_text_data_empty() {
@@ -521,4 +550,62 @@ mod tests {
             air_pressure: 962.0
         })), Err(ParseError::IOError)]);
     }
+
+    #[test]
+    fn test_open_and_read_file1() {
+        let result = open_and_read_file("test_read_binary1.txt").unwrap();
+
+        let expected = vec![2, 2, 160, 208, 232, 125, 50, 0, 0, 0, 0, 71, 214,
+80, 198, 3, 236, 96, 210, 68, 33, 99, 52, 102, 74, 36, 81, 96, 0, 3, 114, 224, 246, 125, 50, 0, 0, 0, 0, 71, 250, 82, 136, 4, 14, 96, 210, 68, 37, 99,
+55, 103, 8, 38, 64, 96, 0, 3, 113, 240, 4, 126, 50, 0, 0, 0, 0, 72, 53, 84, 50, 3, 239, 96, 209, 68, 51, 99, 194, 104, 52, 35, 239, 96, 0, 3, 113,
+0, 19, 126, 50, 0, 0, 0, 0, 71, 243, 81, 13, 3, 148, 96, 209, 68, 76, 99, 165, 105, 46, 37, 133, 96, 0, 3, 113, 16, 33, 126, 50, 0, 0, 0, 0, 71, 226,
+87, 89, 53, 112, 96, 209, 68, 113, 99, 115, 105, 166, 38, 78, 96, 0, 3, 112, 32, 47, 126, 50, 0, 0, 0, 0, 71, 124, 87, 93, 39, 53, 96, 208, 68,
+158, 99, 180, 106, 210, 38, 222, 96, 0, 3, 112, 48, 61, 126, 50, 0, 0, 0, 0, 70, 254, 86, 203, 35, 121, 96, 208, 68, 204, 98, 211, 104, 112, 39, 103,
+96, 0, 3, 112, 64, 75, 126, 50, 0, 0, 0, 0, 70, 17, 88, 33, 79, 30, 96, 208, 68, 248, 97, 248, 102, 74, 40, 23, 96, 0, 3, 112, 80, 89, 126, 50, 0,
+ 0, 0, 0, 68, 32, 93, 113, 115, 238, 96, 207, 69, 28, 98, 88, 100, 76, 40, 84, 96, 0, 3, 112, 96, 103, 126, 50, 0, 0, 0, 0, 67, 208, 87, 167, 96, 0,
+ 96, 207, 69, 48, 98, 74, 100, 136, 39, 177, 96, 0, 3, 112, 112, 117, 126, 50, 0, 0, 0, 0, 67, 204, 75, 89, 96, 0, 96, 207, 69, 63, 98, 193, 101, 100,
+ 39, 48, 96, 0, 3, 112, 128, 131, 126, 50, 0, 0, 0, 0, 67, 190, 70, 159, 96, 0, 96, 207, 69, 68, 98, 49, 100, 186, 39, 110, 96, 0, 3, 112, 144, 145,
+ 126, 50, 0, 0, 0, 0, 67, 192, 69, 220, 96, 0, 96, 206, 69, 64, 98, 93, 100, 26, 39, 214, 96, 0, 3, 112, 160, 159, 126, 50, 0, 0, 0, 0, 67, 160, 71,
+ 9, 96, 0, 96, 206, 69, 57, 98, 39, 103, 8, 39, 164, 96, 0, 3, 111, 176, 173, 126, 50, 0, 0, 0, 0, 67, 84, 74, 134, 96, 0, 96, 205, 69, 46, 98, 22,
+ 99, 62, 40, 55, 96, 0, 3, 111, 192, 187, 126, 50, 0, 0, 0, 0, 67, 82, 72, 39, 96, 0, 96, 205, 69, 33, 98, 69, 100, 56, 40, 4, 96, 0, 3, 111, 208,
+201, 126, 50, 0, 0, 0, 0, 67, 186, 74, 219, 96, 0, 96, 205, 69, 15, 98, 71, 99, 242, 38, 230, 96, 0, 3, 110, 224, 215, 126, 50, 0, 0, 0, 0, 67, 202,
+ 80, 153, 96, 0, 96, 204, 69, 2, 97, 225, 100, 246, 38, 173, 96, 0, 3, 110, 240, 229, 126, 50, 0, 0, 0, 0, 125, 116, 83, 237, 107, 237, 96, 204, 68,
+ 241, 97, 214, 100, 36, 39, 253, 96, 0, 3, 110, 0, 244, 126, 50, 0, 0, 0, 0, 124, 204, 94, 167, 74, 146, 96, 204, 68, 223, 97, 116, 100, 16, 39, 113,
+ 96, 0, 3, 110, 16, 2, 127, 50, 0, 0, 0, 0, 68, 37, 71, 124, 35, 82, 96, 204, 68, 207, 97, 97, 101, 150, 40, 63, 96, 0, 3, 111, 32, 16, 127, 50, 0,
+ 0, 0, 0, 70, 140, 73, 150, 53, 117, 96, 204, 68, 190, 98, 54, 103, 218, 37, 253, 96, 0, 3, 111, 48, 30, 127, 50, 0, 0, 0, 0, 71, 159, 72, 65, 62, 79,
+ 96, 203, 68, 174, 98, 201, 103, 88, 40, 3, 96, 0, 3, 111, 64, 44, 127, 50, 0, 0, 0, 0, 71, 192, 74, 163, 3, 162, 96, 203, 68, 159, 99, 45, 104, 142,
+ 40, 31, 96, 0, 3, 111];
+
+        assert_eq!(result, expected);
+    }
+
+
+    #[test]
+    fn test_open_and_read_file2() {
+        let result = open_and_read_file("test_read_binary2.txt").unwrap();
+
+        let expected = vec![2, 0, 14, 128, 131, 126, 50, 0, 0, 0, 0, 69, 14, 109, 135, 96, 0];
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_parse_binary_data_from_file1() {
+        let result = parse_binary_data_from_file("test_read_binary1.txt");
+
+        assert_eq!(result.len(), 24);
+
+        for val in result {
+            assert!(val.is_ok());
+        }
+    }
+
+
+    #[test]
+    fn test_parse_binary_data_from_file2() {
+        let result = parse_binary_data_from_file("test_read_binary2.txt");
+
+        assert_eq!(result.len(), 1);
+        assert!(result[0].is_ok());
+    }
+
 }

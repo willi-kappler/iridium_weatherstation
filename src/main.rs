@@ -34,6 +34,11 @@ fn main() {
     // Parse command line arguments
     let config = setup_configuration();
 
+    if let Some(filename) = config.binary_filename {
+        println!("Reading binary data from file '{}'", filename);
+        return;
+    }
+
     // Initialize logger
     init(LogConfig { log_to_file: true, format: detailed_format, .. LogConfig::new() }, Some(config.log_level.clone()))
     .unwrap_or_else(|e| { panic!("Logger initialization failed with the following error: {}", e) });

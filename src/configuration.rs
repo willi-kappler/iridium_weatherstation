@@ -18,7 +18,8 @@ pub struct Configuration {
     pub hostname: String,
     pub db_name: String,
     pub username: String,
-    pub password: String
+    pub password: String,
+    pub binary_filename : Option<String>
 }
 
 fn default_ports() -> Vec<u16> {
@@ -88,6 +89,12 @@ pub fn setup_configuration() -> Configuration {
             .help("The password for the MySQL database connection")
             .takes_value(true)
         )
+        .arg(
+            Arg::with_name("read_binary")
+            .long("read_binary")
+            .help("Read in binary data from file and put it into the database, exit afterwards.")
+            .takes_value(true)
+        )
         .get_matches();
 
         let ports = match matches.value_of("ports") {
@@ -120,13 +127,19 @@ pub fn setup_configuration() -> Configuration {
             _ => "none"
         };
 
+        let binary_filename = match matches.value_of("read_binary") {
+            Some(filename) => Some(filename.to_string()),
+            _ => None
+        };
+
         Configuration {
             ports: ports,
             log_level: log_level.to_string(),
             hostname: hostname.to_string(),
             db_name: db_name.to_string(),
             username: username.to_string(),
-            password: password.to_string()
+            password: password.to_string(),
+            binary_filename: binary_filename
         }
 }
 
@@ -141,7 +154,8 @@ mod tests {
             hostname: "localhost".to_string(),
             db_name: "weatherstation".to_string(),
             username: "root".to_string(),
-            password: "none".to_string()
+            password: "none".to_string(),
+            binary_filename: None
         });
     }
 
