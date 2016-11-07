@@ -27,16 +27,31 @@ use flexi_logger::{detailed_format, init, LogConfig};
 
 // Internal modules:
 use station_util::configuration::{setup_configuration, ALIVE_MSG_INTERVALL};
-use station_util::server::start_service;
+use station_util::server::{init_db, store_to_db, start_service};
+use station_util::data_parser::{parse_binary_data_from_file};
 
 
 fn main() {
     // Parse command line arguments
     let config = setup_configuration();
 
-    if let Some(filename) = config.binary_filename {
-        println!("Reading binary data from file '{}'", filename);
-        return;
+    match (config.binary_filename.clone(), config.binary_station_name.clone()) {
+        (Some(filename), Some(station_name)) => {
+            println!("Reading binary data from file '{}'", filename);
+
+            let db_pool = init_db(&config);
+
+            for parsed_data in parse_binary_data_from_file(&filename) {
+                if let Ok(data) = parsed_data {
+                    let _ = store_to_db(&db_pool, &station_name, &data).unwrap();
+                }
+            }
+
+            println!("Data imported succesfully into the database!");
+
+            return;
+        }
+        _ => {}
     }
 
     // Initialize logger
