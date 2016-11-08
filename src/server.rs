@@ -161,7 +161,7 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
         // info!("Data (ASCII) ({}): '{}'", &station_name, str_data);
 
         // Quick hack for now, remove later when everything is binary
-        if local_port == 2101 || local_port == 2102 || local_port == 2103 || local_port == 2001 {
+        if local_port == 2101 || local_port == 2103 || local_port == 2001 {
             info!("Parse text data");
 
             match parse_text_data(&buffer_right) {
