@@ -35,6 +35,12 @@ fn main() {
     // Parse command line arguments
     let config = setup_configuration();
 
+    // Initialize logger
+    init(LogConfig { log_to_file: true, format: detailed_format, .. LogConfig::new() }, Some(config.log_level.clone()))
+    .unwrap_or_else(|e| { panic!("Logger initialization failed with the following error: {}", e) });
+
+    info!("Data processor started.");
+
     match (config.binary_filename.clone(), config.binary_station_name.clone()) {
         (Some(filename), Some(station_name)) => {
             println!("Reading binary data from file '{}'", filename);
@@ -53,12 +59,6 @@ fn main() {
         }
         _ => {}
     }
-
-    // Initialize logger
-    init(LogConfig { log_to_file: true, format: detailed_format, .. LogConfig::new() }, Some(config.log_level.clone()))
-    .unwrap_or_else(|e| { panic!("Logger initialization failed with the following error: {}", e) });
-
-    info!("Data processor started.");
 
     let mut ports = String::new();
 
