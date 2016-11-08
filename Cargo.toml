@@ -19,6 +19,6 @@ chrono = "0.2"
 byteorder = "0.5"
 
 [dependencies.mysql]
-version = "*"
+version = "7.1.2"
 default-features = false
 features = ["socket"]
