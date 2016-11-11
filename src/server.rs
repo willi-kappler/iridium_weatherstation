@@ -162,7 +162,7 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
 
         // Quick hack for now, remove later when everything is binary
         if local_port == 2101 || local_port == 2103 || local_port == 2001 {
-            info!("Parse text data");
+            info!("Parse text data for {}", &station_name);
 
             match parse_text_data(&buffer_right) {
                 Ok(parsed_data) => {
@@ -179,12 +179,12 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
                 }
             }
         } else {
-            info!("Parse binary data");
+            info!("Parse binary data for {}", &station_name);
 
             for (counter, parsed_data) in parse_binary_data(&buffer_right).iter().enumerate() {
                 match *parsed_data {
                     Ok(ref parsed_data) => {
-                        info!("Data parsed correctly ({})", counter);
+                        info!("Data parsed correctly ({})", counter + 1);
                         match db_pool.lock() {
                             Ok(db_pool) => {
                                 try!(store_to_db(&db_pool, &station_name, &parsed_data));
