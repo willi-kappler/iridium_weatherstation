@@ -1,5 +1,5 @@
 //! Parse incomming data
-//! Support for CSV abd binary data
+//! Support for CSV and binary data
 
 use std::str;
 use std::num;
@@ -224,12 +224,12 @@ fn parse_binary_data_battery(buffer: &[u8]) -> Result<StationDataType, ParseErro
 
     let solar_battery_voltage = try!(read_bytes.read_u16::<BigEndian>());
     let lithium_battery_voltage = try!(read_bytes.read_u16::<BigEndian>());
-    let wind_dir = try!(read_bytes.read_u16::<BigEndian>());
+    let wind_diag = try!(read_bytes.read_u16::<BigEndian>());
 
     Ok(StationDataType::SimpleData(u32_to_timestamp(seconds),
                                    u16_to_f64(solar_battery_voltage),
                                    u16_to_f64(lithium_battery_voltage),
-                                   u16_to_f64(wind_dir)
+                                   u16_to_f64(wind_diag)
                                    ))
 }
 

@@ -45,7 +45,7 @@ pub fn store_to_db<'a>(db_pool: &Pool, station_name: &str, data: &StationDataTyp
     let datetime_format = "%Y-%m-%d %H:%M:%S";
 
     match data {
-        &StationDataType::SimpleData(timestamp_tm, voltage1, voltage2, wind_dir) => {
+        &StationDataType::SimpleData(timestamp_tm, voltage1, voltage2, wind_diag) => {
             let timestamp = try!(timestamp_tm.strftime(&datetime_format));
             let result = try!(db_pool.prep_exec("INSERT INTO battery_data (
                       timestamp,
@@ -64,7 +64,7 @@ pub fn store_to_db<'a>(db_pool: &Pool, station_name: &str, data: &StationDataTyp
                    Value::from(station_name),
                    Value::from(voltage1),
                    Value::from(voltage2),
-                   Value::from(wind_dir)
+                   Value::from(wind_diag)
                       )));
             return Ok(Some(result));
         },
