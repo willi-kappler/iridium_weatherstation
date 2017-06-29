@@ -1,6 +1,12 @@
 //! Provides the server and handles the incomming requests
 //! All ports are handled by the same function
 
+// External modules:
+use mysql;
+use mysql::{OptsBuilder, Pool, Value};
+use mysql::conn::QueryResult;
+use chrono::Local;
+
 // System modules:
 use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::thread::spawn;
@@ -8,10 +14,8 @@ use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
 use std::io;
 use time;
-use mysql;
-use mysql::{OptsBuilder, Pool, Value};
-use mysql::conn::QueryResult;
 use std::process;
+use std::fs::File;
 
 // Internal modules:
 use configuration::{Configuration, HEADER_LENGTH};
@@ -141,15 +145,27 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
 
     info!("Port: {}", local_port);
 
-    let mut buffer = Vec::new();
+    let mut tcp_buffer = Vec::new();
 
-    let len = try!(stream.read_to_end(&mut buffer));
+    let len = try!(stream.read_to_end(&mut tcp_buffer));
     info!("[{}] Number of bytes received: {}", local_port, len);
 
-    if buffer.len() > HEADER_LENGTH {
-        let station_name = port_to_station(local_port);
+    // Write received binary data to disk
+    let date_today = Local::now().format("%Y_%m_%d.dat").to_string();
+    let station_name = port_to_station(local_port);
+    let binary_filename = format!("old/binary/{}_{}", station_name, date_today);
 
-        let (_, buffer_right) = buffer.split_at(HEADER_LENGTH);
+    info!("write binary file to: {}", binary_filename);
+
+    {
+        // Close file after this block
+        let mut binary_file = File::create(binary_filename)?;
+        binary_file.write(&tcp_buffer)?;
+    }
+
+    if tcp_buffer.len() > HEADER_LENGTH {
+
+        let (_, buffer_right) = tcp_buffer.split_at(HEADER_LENGTH);
 
         // let str_header = String::from_utf8_lossy(buffer_left);
         // let str_data = String::from_utf8_lossy(buffer_right);
@@ -161,6 +177,7 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
         // info!("Data (ASCII) ({}): '{}'", &station_name, str_data);
 
         // Quick hack for now, remove later when everything is binary
+        // For the test case "test_server1"
         if local_port == 2001 {
             info!("Parse text data for {}", &station_name);
 
@@ -198,14 +215,14 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
                 }
             }
         }
-    } else if buffer.len() < HEADER_LENGTH {
+    } else if tcp_buffer.len() < HEADER_LENGTH {
         info!("[{}] Invalid header (less than {} bytes received)!", local_port, HEADER_LENGTH);
-        info!("[{}] Bytes: {:?}", local_port, buffer);
-        // info!("Bytes (ASCII): '{}'", String::from_utf8_lossy(&buffer));
-    } else { // buffer.len() == HEADER_LENGTH -> no data, only header
+        info!("[{}] Bytes: {:?}", local_port, tcp_buffer);
+        // info!("Bytes (ASCII): '{}'", String::from_utf8_lossy(&tcp_buffer));
+    } else { // tcp_buffer.len() == HEADER_LENGTH -> no data, only header
         info!("[{}] No data received, just header.", local_port);
-        info!("[{}] Bytes: {:?}", local_port, buffer);
-        // info!("Bytes (ASCII): '{}'", String::from_utf8_lossy(&buffer));
+        info!("[{}] Bytes: {:?}", local_port, tcp_buffer);
+        // info!("Bytes (ASCII): '{}'", String::from_utf8_lossy(&tcp_buffer));
     }
 
     info!("handle_client finished");
@@ -262,7 +279,6 @@ mod tests {
     use time::{strptime};
     use mysql::{Value, Pool, OptsBuilder};
     use chrono::naive::datetime::NaiveDateTime;
-    use flexi_logger::{detailed_format, init, LogConfig};
 
     use configuration::Configuration;
     use data_parser::{StationDataType, WeatherStationData};
@@ -395,8 +411,6 @@ mod tests {
 
     #[test]
     fn test_server1() {
-        let _ = init(LogConfig { log_to_file: true, format: detailed_format, .. LogConfig::new() }, Some("info".to_string()));
-
         let config = Configuration {
             ports: vec![2001],
             log_level: "info".to_string(),
@@ -470,8 +484,6 @@ mod tests {
 
     #[test]
     fn test_server2() {
-        let _ = init(LogConfig { log_to_file: true, format: detailed_format, .. LogConfig::new() }, Some("info".to_string()));
-
         let config = Configuration {
             ports: vec![2200],
             log_level: "info".to_string(),

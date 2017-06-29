@@ -7,7 +7,7 @@
 #[macro_use] extern crate quick_error;
 #[macro_use] extern crate mysql;
 
-extern crate flexi_logger;
+extern crate simplelog;
 extern crate time;
 extern crate regex;
 extern crate chrono;

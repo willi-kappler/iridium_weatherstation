@@ -13,7 +13,8 @@
 
 // External crates:
 #[macro_use] extern crate log;
-extern crate flexi_logger;
+extern crate simplelog;
+extern crate chrono;
 
 // Internal crates:
 extern crate station_util;
@@ -21,9 +22,12 @@ extern crate station_util;
 // System modules:
 use std::time::Duration;
 use std::thread::sleep;
+use std::fs::OpenOptions;
 
 // External modules:
-use flexi_logger::{detailed_format, init, LogConfig};
+use simplelog::{Config, TermLogger, WriteLogger, LogLevelFilter};
+use log::LogLevel;
+use chrono::Local;
 
 // Internal modules:
 use station_util::configuration::{setup_configuration, ALIVE_MSG_INTERVALL};
@@ -36,8 +40,24 @@ fn main() {
     let config = setup_configuration();
 
     // Initialize logger
-    init(LogConfig { log_to_file: true, format: detailed_format, .. LogConfig::new() }, Some(config.log_level.clone()))
-    .unwrap_or_else(|e| { panic!("Logger initialization failed with the following error: {}", e) });
+    let dt = Local::now();
+    let log_filename = dt.format("iridium_weatherstation_%Y_%m_%d.log").to_string();
+
+    let log_config = Config{
+        time: Some(LogLevel::Warn),
+        level: Some(LogLevel::Warn),
+        target: Some(LogLevel::Warn),
+        location: Some(LogLevel::Warn)
+    };
+
+    if let Ok(file) = OpenOptions::new().append(true).create(true).open(&log_filename) {
+        let _ = WriteLogger::init(LogLevelFilter::Info, log_config, file);
+        info!("Log file '{}' created succesfully", &log_filename);
+    } else {
+        // Log file could not be created, use stdout instead
+        let _ = TermLogger::init(LogLevelFilter::Info, log_config);
+        warn!("Could not open log fle: '{}', using sdtout instead!", &log_filename);
+    }
 
     info!("Data processor started.");
 
