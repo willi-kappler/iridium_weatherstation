@@ -1,5 +1,0 @@
-target/
-Cargo.lock
-test_read_binary1.txt
-test_read_binary2.txt
-
