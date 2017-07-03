@@ -134,6 +134,8 @@ fn port_to_station(port: u16) -> String{
 
 fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
     db_pool: &Arc<Mutex<Pool>>) -> Result<Option<QueryResult<'a>>, StoreDataError> {
+    let date_today = Local::now().format("%Y_%m_%d").to_string();
+    info!("Date: {}", date_today);
     info!("Client socket address: {}", remote_addr);
 
     let local_addr = try!(stream.local_addr());
@@ -151,9 +153,12 @@ fn handle_client<'a>(stream: &mut TcpStream, remote_addr: &SocketAddr,
     info!("[{}] Number of bytes received: {}", local_port, len);
 
     // Write received binary data to disk
-    let date_today = Local::now().format("%Y_%m_%d.dat").to_string();
     let station_name = port_to_station(local_port);
-    let binary_filename = format!("old/binary/{}_{}", station_name, date_today);
+    let binary_filename = if len < 100 {
+        format!("old/binary/{}_small_{}.dat", station_name, date_today)
+    } else {
+        format!("old/binary/{}_full_{}.dat", station_name, date_today)
+    };
 
     info!("write binary file to: {}", binary_filename);
 
