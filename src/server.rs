@@ -3,8 +3,7 @@
 
 // External modules:
 use mysql;
-use mysql::{OptsBuilder, Pool, Value};
-use mysql::conn::QueryResult;
+use mysql::{OptsBuilder, Pool, Value, QueryResult};
 use chrono::Local;
 
 // System modules:
@@ -283,7 +282,7 @@ mod tests {
 
     use time::{strptime};
     use mysql::{Value, Pool, OptsBuilder};
-    use chrono::naive::datetime::NaiveDateTime;
+    use chrono::NaiveDateTime;
 
     use configuration::Configuration;
     use data_parser::{StationDataType, WeatherStationData};

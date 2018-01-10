@@ -43,7 +43,7 @@ fn main() {
     let dt = Local::now();
     let log_filename = dt.format("iridium_weatherstation_%Y_%m_%d.log").to_string();
 
-    let log_config = Config{
+    let log_config = Config {
         time: Some(LogLevel::Warn),
         level: Some(LogLevel::Warn),
         target: Some(LogLevel::Warn),
