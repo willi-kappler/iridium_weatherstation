@@ -1,4 +1,4 @@
-//! Parse incomming data
+//! Parse incoming data
 //! Support for CSV and binary data
 
 use std::str;
@@ -34,7 +34,7 @@ pub struct WeatherStationData {
 pub enum StationDataType {
     /// Simple data is just the time stamp, two battery voltage and wind.
     SimpleData(Tm, f64, f64, f64),
-    /// Multipe data contains the time stamp and all the other data values
+    /// Multiple data contains the time stamp and all the other data values
     MultipleData(WeatherStationData)
 }
 

@@ -99,7 +99,7 @@ pub fn setup_configuration() -> Configuration {
         .arg(
             Arg::with_name("binary_station_name")
             .long("binary_station_name")
-            .help("The staion name when reading in binary data")
+            .help("The station name when reading in binary data")
             .takes_value(true)
         )
         .get_matches();

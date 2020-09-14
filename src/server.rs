@@ -1,4 +1,4 @@
-//! Provides the server and handles the incomming requests
+//! Provides the server and handles the incoming requests
 //! All ports are handled by the same function
 
 // External modules:
@@ -261,7 +261,7 @@ pub fn start_service(config: &Configuration) {
                     let (mut stream, addr) = result;
                     match handle_client(&mut stream, &addr, &cloned_pool) {
                         Ok(None) => {},
-                        Ok(Some(query_result)) => { info!("Database insert successfull: {}, {}",
+                        Ok(Some(query_result)) => { info!("Database insert successful: {}, {}",
                             query_result.affected_rows(),  query_result.last_insert_id()) },
                         Err(StoreDataError::MySQLError(db_error)) => { info!("DB Error: {}", db_error) },
                         Err(StoreDataError::IOError(io_error)) => { info!("IO Error: {}", io_error) },
@@ -434,7 +434,7 @@ mod tests {
                   .db_name(Some("test_weatherstation"));
         let pool = Pool::new(db_builder).unwrap();
 
-        info!("DB connection successfull!");
+        info!("DB connection successful!");
 
 
         // Make sure that there is no old data laying around
