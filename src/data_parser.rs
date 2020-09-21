@@ -1,6 +1,7 @@
 //! Parse incoming data
 //! Support for CSV and binary data
 
+// System modules:
 use std::str;
 use std::num;
 use std::io;
@@ -8,15 +9,19 @@ use std::io::Cursor;
 use std::f64::{INFINITY, NEG_INFINITY, NAN};
 use std::fs::File;
 use std::io::Read;
+use std::fmt;
 
-use time::{strptime, Tm, Duration};
+// External modules:
+use chrono::{NaiveDateTime};
+use time::{Duration};
 use regex::Regex;
 use byteorder::{LittleEndian, BigEndian, ReadBytesExt};
+use log::{info};
 
 /// The actual data sent from each weather station
 #[derive(Debug, Clone, PartialEq)]
 pub struct WeatherStationData {
-    pub timestamp: Tm,
+    pub timestamp: NaiveDateTime,
     pub air_temperature: f64,
     pub air_relative_humidity: f64,
     pub solar_radiation: f64,
@@ -33,43 +38,22 @@ pub struct WeatherStationData {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StationDataType {
     /// Simple data is just the time stamp, two battery voltage and wind.
-    SimpleData(Tm, f64, f64, f64),
+    SimpleData(NaiveDateTime, f64, f64, f64),
     /// Multiple data contains the time stamp and all the other data values
     MultipleData(WeatherStationData)
 }
 
 /// ErrorType, what can go wrong during parsing...
-quick_error! {
-    #[derive(Debug, Clone, PartialEq)]
-    pub enum ParseError {
-        EmptyBuffer {
-            description("Empty buffer")
-        }
-        InvalidDataHeader {
-            description("Invalid data header")
-        }
-        NoTimeStamp {
-            description("Invalid data: no time stamp found")
-        }
-        WrongNumberOfColumns {
-            description("Invalid data: wrong number of columns (allowed: 3 or 11)")
-        }
-        ParseFloatError(err: num::ParseFloatError) {
-            from()
-            description(err.description())
-        }
-        Utf8Error(err: str::Utf8Error) {
-            from()
-            description(err.description())
-        }
-        IOError {
-            description("IOError")
-        }
-        ParseIntError(err: num::ParseIntError) {
-            from()
-            description(err.description())
-        }
-    }
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParseError {
+    EmptyBuffer,
+    InvalidDataHeader,
+    NoTimeStamp,
+    WrongNumberOfColumns,
+    ParseFloatError(num::ParseFloatError),
+    Utf8Error(str::Utf8Error),
+    IOError,
+    ParseIntError(num::ParseIntError),
 }
 
 impl From<io::Error> for ParseError {
@@ -78,8 +62,57 @@ impl From<io::Error> for ParseError {
     }
 }
 
+impl From<num::ParseFloatError> for ParseError {
+    fn from(err: num::ParseFloatError) -> ParseError {
+        ParseError::ParseFloatError(err)
+    }
+}
+
+impl From<str::Utf8Error> for ParseError {
+    fn from(err: str::Utf8Error) -> ParseError {
+        ParseError::Utf8Error(err)
+    }
+}
+
+impl From<num::ParseIntError> for ParseError {
+    fn from(err: num::ParseIntError) -> ParseError {
+        ParseError::ParseIntError(err)
+    }
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseError::EmptyBuffer => {
+                write!(f, "Empty buffer")
+            }
+            ParseError::InvalidDataHeader => {
+                write!(f, "Invalid data header")
+            }
+            ParseError::NoTimeStamp => {
+                write!(f, "Invalid data: no time stamp found")
+            }
+            ParseError::WrongNumberOfColumns => {
+                write!(f, "Invalid data: wrong number of columns (allowed: 3 or 11)")
+            }
+            ParseError::ParseFloatError(e) => {
+                write!(f, "Parse float error: {}", e)
+            }
+            ParseError::Utf8Error(e) => {
+                write!(f, "UFT8 error: {}", e)
+            }
+            ParseError::IOError => {
+                write!(f, "IOError")
+            }
+            ParseError::ParseIntError(e) => {
+                write!(f, "Parse int error: {}", e)
+            }
+        }
+    }
+}
+
 /// Parse all other data besides battery voltage
-fn parse_other_data(timestamp: &Tm, line_elements: &Vec<&str>) -> Result<StationDataType, ParseError> {
+fn parse_other_data(timestamp: &NaiveDateTime, line_elements: &Vec<&str>) -> Result<StationDataType, ParseError> {
     println!("line_elements: {:?}", line_elements);
 
     let air_temperature = line_elements[1].parse::<f64>()?;
@@ -122,7 +155,7 @@ pub fn parse_text_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
                     // Prepare for parsing, split line at every ','
                     let remove_junk = |c| c < '0' || c > '9';
                     let line_elements: Vec<&str> = line_str.split(',').map(|elem| elem.trim_matches(&remove_junk)).collect();
-                    let timestamp = strptime(line_elements[0].trim_matches(&remove_junk), "%Y-%m-%d %H:%M:%S").unwrap();
+                    let timestamp = NaiveDateTime::parse_from_str(line_elements[0].trim_matches(&remove_junk), "%Y-%m-%d %H:%M:%S").unwrap();
 
                     if line_elements.len() == 3 { // Only battery voltage
                         let battery_voltage = line_elements[1].parse::<f64>();
@@ -151,8 +184,8 @@ pub fn parse_text_data(buffer: &[u8]) -> Result<StationDataType, ParseError> {
     }
 }
 
-fn u32_to_timestamp(seconds: u32) -> Tm {
-    let datetime_base = strptime("1990-01-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+fn u32_to_timestamp(seconds: u32) -> NaiveDateTime {
+    let datetime_base = NaiveDateTime::parse_from_str("1990-01-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
     datetime_base + Duration::seconds(seconds as i64)
 }
 
@@ -337,7 +370,8 @@ pub fn parse_binary_data_from_file(filename: &str) -> Vec<Result<StationDataType
 
 #[cfg(test)]
 mod tests {
-    use time::{strptime, Duration};
+    use time::{Duration};
+    use chrono::{NaiveDateTime};
 
     use super::*;
     use super::{u32_to_timestamp, u16_to_f64, parse_binary_data_battery, parse_binary_data_multiple, open_and_read_file};
@@ -372,7 +406,7 @@ mod tests {
             46, 51, 51, 51, 44, 48, 46, 48, 50, 50, 44, 49, 53, 46, 49, 56, 44, 48, 46, 55, 56,
             50, 44, 49, 46, 55, 53, 44, 50, 53, 54, 46, 55, 44, 48, 44, 57, 53, 49, 10]);
         assert_eq!(result, Ok(StationDataType::MultipleData(WeatherStationData{
-            timestamp: strptime("2016-06-11 09:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            timestamp: NaiveDateTime::parse_from_str("2016-06-11 09:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
             air_temperature: 7.56,
             air_relative_humidity: 32.25,
             solar_radiation: 1.333,
@@ -390,7 +424,7 @@ mod tests {
     fn test_parse_text_data_correct2() { // Only battery data
         let result = parse_text_data(&[2, 0, 30, 34, 50, 48, 49, 54, 45, 48, 54, 45, 49, 50, 32, 48,
             48, 58, 48, 48, 58, 48, 48, 34, 44, 49, 50, 46, 55, 51, 44, 48, 10]);
-        assert_eq!(result, Ok(StationDataType::SimpleData(strptime("2016-06-12 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap(), 12.73, 0.0, 0.0)));
+        assert_eq!(result, Ok(StationDataType::SimpleData(NaiveDateTime::parse_from_str("2016-06-12 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap(), 12.73, 0.0, 0.0)));
     }
 
     #[test]
@@ -404,7 +438,7 @@ mod tests {
     #[test]
     fn test_u32_to_timestamp() {
         let result = u32_to_timestamp(843091200);
-        let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let datetime = NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         assert_eq!(result, datetime + Duration::seconds(0));
     }
 
@@ -483,14 +517,14 @@ mod tests {
     #[test]
     fn test_parse_binary_data_battery() {
         let result = parse_binary_data_battery(&[0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 96, 0, 0, 0]);
-        let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
+        let datetime = NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
         assert_eq!(result, Ok(StationDataType::SimpleData(datetime, 12.76, 0.0, 0.0)));
     }
 
     #[test]
     fn test_parse_binary_data_multiple() {
         let result = parse_binary_data_multiple(&[0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194]);
-        let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
+        let datetime = NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
         assert_eq!(result, Ok(StationDataType::MultipleData(WeatherStationData{
             timestamp: datetime,
             air_temperature: 15.02,
@@ -509,14 +543,14 @@ mod tests {
     #[test]
     fn test_parse_binary_data1() {
         let result = parse_binary_data(&[2, 0, 12, 0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 96, 0, 0, 0]);
-        let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
+        let datetime = NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
         assert_eq!(result, vec![Ok(StationDataType::SimpleData(datetime, 12.76, 0.0, 0.0))]);
     }
 
     #[test]
     fn test_parse_binary_data2() {
         let result = parse_binary_data(&[2, 0, 28, 0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194]);
-        let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
+        let datetime = NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
         assert_eq!(result, vec![Ok(StationDataType::MultipleData(WeatherStationData{
             timestamp: datetime,
             air_temperature: 15.02,
@@ -535,7 +569,7 @@ mod tests {
     #[test]
     fn test_parse_binary_data3() {
         let result = parse_binary_data(&[2, 0, 28, 0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194, 0]);
-        let datetime = strptime("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
+        let datetime = NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0);
         assert_eq!(result, vec![Ok(StationDataType::MultipleData(WeatherStationData{
             timestamp: datetime,
             air_temperature: 15.02,
@@ -610,7 +644,7 @@ mod tests {
         let data = result[0].as_ref().unwrap();
 
         assert_eq!(*data, StationDataType::SimpleData(
-            strptime("2016-11-05 0:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0),
+            NaiveDateTime::parse_from_str("2016-11-05 0:00:00", "%Y-%m-%d %H:%M:%S").unwrap() + Duration::seconds(0),
             12.94,
             3.463,
             0.0

@@ -10,30 +10,22 @@
 // https://github.com/starkat99/half-rs
 // http://starkat99.github.io/half-rs/half/struct.f16.html
 
-
-// External crates:
-#[macro_use] extern crate log;
-extern crate simplelog;
-extern crate chrono;
-
 // Internal crates:
 extern crate station_util;
 
 // System modules:
 use std::time::Duration;
 use std::thread::sleep;
-use std::fs::OpenOptions;
 
-// External modules:
-use simplelog::{Config, TermLogger, WriteLogger, LogLevelFilter};
-use log::LogLevel;
+// External crates:
+use log4rs;
+use log::{info};
 use chrono::Local;
 
 // Internal modules:
 use station_util::configuration::{setup_configuration, ALIVE_MSG_INTERVALL};
 use station_util::server::{init_db, store_to_db, start_service};
 use station_util::data_parser::{parse_binary_data_from_file};
-
 
 fn main() {
     // Parse command line arguments
@@ -43,21 +35,16 @@ fn main() {
     let dt = Local::now();
     let log_filename = dt.format("iridium_weatherstation_%Y_%m_%d.log").to_string();
 
-    let log_config = Config {
-        time: Some(LogLevel::Warn),
-        level: Some(LogLevel::Warn),
-        target: Some(LogLevel::Warn),
-        location: Some(LogLevel::Warn)
-    };
+    let file_logger = log4rs::append::file::FileAppender::builder()
+        .encoder(Box::new(log4rs::encode::pattern::PatternEncoder::new("{d} {l} - {m}{n}")))
+        .build(log_filename).unwrap();
 
-    if let Ok(file) = OpenOptions::new().append(true).create(true).open(&log_filename) {
-        let _ = WriteLogger::init(LogLevelFilter::Info, log_config, file);
-        info!("Log file '{}' created successfully", &log_filename);
-    } else {
-        // Log file could not be created, use stdout instead
-        let _ = TermLogger::init(LogLevelFilter::Info, log_config);
-        warn!("Could not open log fle: '{}', using stdout instead!", &log_filename);
-    }
+    let log_config = log4rs::config::Config::builder()
+        .appender(log4rs::config::Appender::builder().build("file_logger", Box::new(file_logger)))
+        .build(log4rs::config::Root::builder().appender("file_logger").build(log::LevelFilter::Debug))
+        .unwrap();
+
+    let _log_handle = log4rs::init_config(log_config).unwrap();
 
     info!("Data processor started.");
 
