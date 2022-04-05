@@ -1,0 +1,4 @@
+{
+    "ports": [2100, 2101, 2102, 2103],
+    "alive_message_intervall": 3600
+}
