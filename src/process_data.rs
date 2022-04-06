@@ -213,7 +213,7 @@ fn parse_weather_data_single(buffer: &[u8]) -> Result<IWWeatherData, IWError> {
         wind_max: u16_to_f64(wind_max),
         wind_direction: u16_to_f64(wind_direction),
         precipitation: u16_to_f64(precipitation),
-        air_pressure: u16_to_f64(air_pressure),        
+        air_pressure: u16_to_f64(air_pressure),
     };
 
     Ok(result)
@@ -284,7 +284,6 @@ pub fn handle_connection(mut stream: TcpStream, socket: SocketAddr) -> Result<()
 
     let date_today = Local::now().format("%Y_%m_%d").to_string();
 
-    
     // Write received binary data to disk.
     // Close binary file directly after this block.
     {
@@ -295,6 +294,8 @@ pub fn handle_connection(mut stream: TcpStream, socket: SocketAddr) -> Result<()
     }
 
     let after_header = &tcp_buffer[HEADER_LENGTH..];
+
+    debug!("[{}] Binary data: {:?}", port, after_header);
 
     match parse_binary_data(after_header) {
         Ok(data) => {
@@ -323,6 +324,8 @@ mod tests {
     use super::{u32_to_timestamp, u16_to_f64, parse_logger_status1, parse_logger_status2,
         parse_weather_data_single, parse_weather_data, get_data_length, parse_binary_data,
         IWStationData, IWLoggerStatus, IWWeatherData};
+
+    use crate::error::IWError;
 
     #[test]
     fn test_u32_to_timestamp() {
@@ -398,7 +401,6 @@ mod tests {
 
     #[test]
     fn test_parse_logger_status2() {
-        // 2, 0, 18, 0, 70, 170, 60, 0, 0, 0, 0, 68, 246, 109, 31, 96, 0, 255, 255, 255, 127
         let result = parse_logger_status2(&[0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 109, 31, 96, 0, 255, 255, 255, 127]).unwrap();
         let timestamp = NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let expected = IWLoggerStatus {
@@ -413,10 +415,38 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_logger_status1_error() {
+        let result = parse_logger_status1(&[0]);
+
+        match result {
+            Err(IWError::IO(_)) => {
+                // OK
+            }
+            _ => {
+                panic!("Expected IWError, got: '{:?}'", result);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_logger_status2_error() {
+        let result = parse_logger_status2(&[0]);
+
+        match result {
+            Err(IWError::IO(_)) => {
+                // OK
+            }
+            _ => {
+                panic!("Expected IWError, got: '{:?}'", result);
+            }
+        }
+    }
+
+    #[test]
     fn test_parse_weather_data_single() {
         let result = parse_weather_data_single(&[0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194]).unwrap();
         let timestamp = NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
-        let expected = IWWeatherData{
+        let expected = IWWeatherData {
             timestamp,
             air_temperature: 15.02,
             air_relative_humidity: 99.7,
@@ -433,4 +463,178 @@ mod tests {
         assert_eq!(result, expected);
     }
 
+    #[test]
+    fn test_parse_weather_data_single_error() {
+        let result = parse_weather_data_single(&[0]);
+
+        match result {
+            Err(IWError::IO(_)) => {
+                // OK
+            }
+            _ => {
+                panic!("Expected IWError, got: '{:?}'", result);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_weather_data() {
+        let result = parse_weather_data(&[
+            208, 252, 170, 60, 0, 0, 0, 0, 70, 121, 93, 234, 3, 52, 96, 48, 72, 12, 119, 158, 67, 59, 42, 25, 96, 0, 3, 210,
+            224, 10, 171, 60, 0, 0, 0, 0, 70, 146, 92, 255, 3, 108, 96, 48, 72, 12, 120, 106, 67, 66, 42, 30, 96, 0, 3, 210]).unwrap();
+
+        let timestamp1 = NaiveDateTime::parse_from_str("2022-04-03 13:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let timestamp2 = NaiveDateTime::parse_from_str("2022-04-03 14:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+
+        let data1 = IWWeatherData {
+            timestamp: timestamp1,
+            air_temperature: 16.57,
+            air_relative_humidity: 76.58,
+            solar_radiation: 820.0,
+            soil_water_content: 0.048,
+            soil_temperature: 20.6,
+            wind_speed: 6.046,
+            wind_max: 8.27,
+            wind_direction: 258.5,
+            precipitation: 0.0,
+            air_pressure: 978.0,
+        };
+
+        let data2 = IWWeatherData {
+            timestamp: timestamp2,
+            air_temperature: 16.82,
+            air_relative_humidity: 74.23,
+            solar_radiation: 876.0,
+            soil_water_content: 0.048,
+            soil_temperature: 20.6,
+            wind_speed: 6.25,
+            wind_max: 8.34,
+            wind_direction: 259.0,
+            precipitation: 0.0,
+            air_pressure: 978.0,
+        };
+
+        let combined = IWStationData::MultipleData(vec![data1, data2]);
+
+        assert_eq!(result, combined);
+    }
+
+    #[test]
+    fn test_parse_weather_data_error() {
+        let result = parse_weather_data(&[0]);
+
+        match result {
+            Err(IWError::IO(_)) => {
+                // OK
+            }
+            _ => {
+                panic!("Expected IWError, got: '{:?}'", result);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_binary_data1() {
+        let result = parse_binary_data(&[2, 0, 14, 128, 151, 171, 60, 0, 0, 0, 0, 68, 209, 109, 116, 96, 0]).unwrap();
+
+        let timestamp1 = NaiveDateTime::parse_from_str("2022-04-04 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+
+        let data1 = IWLoggerStatus {
+            timestamp: timestamp1,
+            solar_battery: 12.33,
+            lithium_battery: 3.444,
+            wind_diag: 0.0,
+            cf_card: 0,
+        };
+
+        let data2 = IWStationData::SingleData(data1);
+
+        assert_eq!(result, data2);
+    }
+
+    #[test]
+    fn test_parse_binary_data2() {
+        let result = parse_binary_data(&[2, 0, 18, 0, 233, 172, 60, 0, 0, 0, 0, 68, 223, 109, 41, 96, 0, 255, 255, 255, 127]).unwrap();
+
+        let timestamp1 = NaiveDateTime::parse_from_str("2022-04-05 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+
+        let data1 = IWLoggerStatus {
+            timestamp: timestamp1,
+            solar_battery: 12.47,
+            lithium_battery: 3.369,
+            wind_diag: 0.0,
+            cf_card: 4294967167,
+        };
+
+        let data2 = IWStationData::SingleData(data1);
+
+        assert_eq!(result, data2);
+    }
+
+    #[test]
+    fn test_parse_binary_data3() {
+        let result = parse_binary_data(&[2, 0, 28, 208, 252, 170, 60, 0, 0, 0, 0, 70, 121, 93, 234, 3, 52, 96, 48, 72, 12, 119, 158, 67, 59, 42, 25, 96, 0, 3, 210]).unwrap();
+
+        let timestamp1 = NaiveDateTime::parse_from_str("2022-04-03 13:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+
+        let data1 = IWWeatherData {
+            timestamp: timestamp1,
+            air_temperature: 16.57,
+            air_relative_humidity: 76.58,
+            solar_radiation: 820.0,
+            soil_water_content: 0.048,
+            soil_temperature: 20.6,
+            wind_speed: 6.046,
+            wind_max: 8.27,
+            wind_direction: 258.5,
+            precipitation: 0.0,
+            air_pressure: 978.0,
+        };
+
+        let data2 = IWStationData::MultipleData(vec![data1]);
+
+        assert_eq!(result, data2);
+    }
+
+    #[test]
+    fn test_parse_binary_data_error1() {
+        let result = parse_binary_data(&[0]);
+
+        match result {
+            Err(IWError::DataTooShort(1)) => {
+                // OK
+            }
+            _ => {
+                panic!("Expected IWError, got: '{:?}'", result);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_binary_data_error2() {
+        let result = parse_binary_data(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+        match result {
+            Err(IWError::DataLengthMismatch(0)) => {
+                // OK
+            }
+            _ => {
+                panic!("Expected IWError, got: '{:?}'", result);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_binary_data_error3() {
+        let result = parse_binary_data(&[0, 0, 14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+        match result {
+            Err(IWError::InvalidDataHeader) => {
+                // OK
+            }
+            _ => {
+                panic!("Expected IWError, got: '{:?}'", result);
+            }
+        }
+    }
 }
