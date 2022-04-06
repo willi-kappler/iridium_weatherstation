@@ -14,6 +14,7 @@ use std::thread::spawn;
 use log::{info, debug, error};
 use chrono::{Local, NaiveDateTime, Duration};
 use byteorder::{LittleEndian, BigEndian, ReadBytesExt};
+use serde_derive::Deserialize;
 
 use crate::config::IWConfiguration;
 use crate::error::IWError;
@@ -43,18 +44,18 @@ fn port_to_station(port: u16) -> String{
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Deserialize)]
 pub struct IWLoggerStatus {
-    pub timestamp: NaiveDateTime,
+    pub timestamp: String,
     pub solar_battery: f64,
     pub lithium_battery: f64,
     pub wind_diag: f64,
     pub cf_card: u32,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Deserialize)]
 pub struct IWWeatherData {
-    pub timestamp: NaiveDateTime,
+    pub timestamp: String,
     pub air_temperature: f64,
     pub air_relative_humidity: f64,
     pub solar_radiation: f64,
@@ -73,9 +74,11 @@ pub enum IWStationData {
     MultipleData(Vec<IWWeatherData>),
 }
 
-fn u32_to_timestamp(seconds: u32) -> NaiveDateTime {
+fn u32_to_timestamp(seconds: u32) -> String {
     let datetime_base = NaiveDateTime::parse_from_str("1990-01-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
-    datetime_base + Duration::seconds(seconds as i64)
+    let result = datetime_base + Duration::seconds(seconds as i64);
+    // YYYY-DD-MM HH:MM:SS
+    result.format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
 fn u16_to_f64(data: u16) -> f64 {
@@ -301,6 +304,15 @@ fn handle_connection(mut stream: TcpStream, socket: SocketAddr) -> Result<(), IW
 
     match parse_binary_data(after_header) {
         Ok(data) => {
+            let folder = match port {
+                2100 => "2100_Na",
+                2101 => "2101_SG",
+                2102 => "2102_PdA",
+                2103 => "2103_LC",
+                2104 => "2104_Tue",
+                _ => "unknown",
+            };
+
             // Export data as CSV and as JSON
             match data {
                 IWStationData::SingleData(data) => {
@@ -366,7 +378,6 @@ mod tests {
     use std::io::Write;
     use std::fs::File;
 
-    use chrono::{NaiveDateTime};
     use simplelog::{WriteLogger, LevelFilter, ConfigBuilder};
 
     use super::{u32_to_timestamp, u16_to_f64, parse_logger_status1, parse_logger_status2,
@@ -379,8 +390,7 @@ mod tests {
     #[test]
     fn test_u32_to_timestamp() {
         let result = u32_to_timestamp(843091200);
-        let datetime = NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
-        assert_eq!(result, datetime);
+        assert_eq!(result, "2016-09-19 00:00:00");
     }
 
     #[test]
@@ -436,9 +446,8 @@ mod tests {
     #[test]
     fn test_parse_logger_status1() {
         let result = parse_logger_status1(&[0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 99, 240, 99, 220]).unwrap();
-        let timestamp = NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let expected = IWLoggerStatus {
-            timestamp,
+            timestamp: "2016-09-19 00:00:00".to_string(),
             solar_battery: 12.76,
             lithium_battery: 1.008,
             wind_diag: 0.988,
@@ -451,9 +460,8 @@ mod tests {
     #[test]
     fn test_parse_logger_status2() {
         let result = parse_logger_status2(&[0, 141, 64, 50, 0, 0, 0, 0, 68, 252, 109, 31, 96, 0, 255, 255, 255, 127]).unwrap();
-        let timestamp = NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let expected = IWLoggerStatus {
-            timestamp,
+            timestamp: "2016-09-19 00:00:00".to_string(),
             solar_battery: 12.76,
             lithium_battery: 3.359,
             wind_diag: 0.0,
@@ -494,9 +502,8 @@ mod tests {
     #[test]
     fn test_parse_weather_data_single() {
         let result = parse_weather_data_single(&[0, 141, 64, 50, 0, 0, 0, 0, 69, 222, 35, 229, 92, 249, 96, 77, 70, 100, 97, 103, 98, 238, 43, 190, 99, 232, 3, 194]).unwrap();
-        let timestamp = NaiveDateTime::parse_from_str("2016-09-19 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let expected = IWWeatherData {
-            timestamp,
+            timestamp: "2016-09-19 00:00:00".to_string(),
             air_temperature: 15.02,
             air_relative_humidity: 99.7,
             solar_radiation: 74.17,
@@ -532,11 +539,8 @@ mod tests {
             208, 252, 170, 60, 0, 0, 0, 0, 70, 121, 93, 234, 3, 52, 96, 48, 72, 12, 119, 158, 67, 59, 42, 25, 96, 0, 3, 210,
             224, 10, 171, 60, 0, 0, 0, 0, 70, 146, 92, 255, 3, 108, 96, 48, 72, 12, 120, 106, 67, 66, 42, 30, 96, 0, 3, 210]).unwrap();
 
-        let timestamp1 = NaiveDateTime::parse_from_str("2022-04-03 13:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
-        let timestamp2 = NaiveDateTime::parse_from_str("2022-04-03 14:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
-
         let data1 = IWWeatherData {
-            timestamp: timestamp1,
+            timestamp: "2022-04-03 13:00:00".to_string(),
             air_temperature: 16.57,
             air_relative_humidity: 76.58,
             solar_radiation: 820.0,
@@ -550,7 +554,7 @@ mod tests {
         };
 
         let data2 = IWWeatherData {
-            timestamp: timestamp2,
+            timestamp: "2022-04-03 14:00:00".to_string(),
             air_temperature: 16.82,
             air_relative_humidity: 74.23,
             solar_radiation: 876.0,
@@ -586,10 +590,8 @@ mod tests {
     fn test_parse_binary_data1() {
         let result = parse_binary_data(&[2, 0, 14, 128, 151, 171, 60, 0, 0, 0, 0, 68, 209, 109, 116, 96, 0]).unwrap();
 
-        let timestamp1 = NaiveDateTime::parse_from_str("2022-04-04 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
-
         let data1 = IWLoggerStatus {
-            timestamp: timestamp1,
+            timestamp: "2022-04-04 00:00:00".to_string(),
             solar_battery: 12.33,
             lithium_battery: 3.444,
             wind_diag: 0.0,
@@ -605,10 +607,8 @@ mod tests {
     fn test_parse_binary_data2() {
         let result = parse_binary_data(&[2, 0, 18, 0, 233, 172, 60, 0, 0, 0, 0, 68, 223, 109, 41, 96, 0, 255, 255, 255, 127]).unwrap();
 
-        let timestamp1 = NaiveDateTime::parse_from_str("2022-04-05 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
-
         let data1 = IWLoggerStatus {
-            timestamp: timestamp1,
+            timestamp: "2022-04-05 00:00:00".to_string(),
             solar_battery: 12.47,
             lithium_battery: 3.369,
             wind_diag: 0.0,
@@ -624,10 +624,8 @@ mod tests {
     fn test_parse_binary_data3() {
         let result = parse_binary_data(&[2, 0, 28, 208, 252, 170, 60, 0, 0, 0, 0, 70, 121, 93, 234, 3, 52, 96, 48, 72, 12, 119, 158, 67, 59, 42, 25, 96, 0, 3, 210]).unwrap();
 
-        let timestamp1 = NaiveDateTime::parse_from_str("2022-04-03 13:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
-
         let data1 = IWWeatherData {
-            timestamp: timestamp1,
+            timestamp: "2022-04-03 13:00:00".to_string(),
             air_temperature: 16.57,
             air_relative_humidity: 76.58,
             solar_radiation: 820.0,
