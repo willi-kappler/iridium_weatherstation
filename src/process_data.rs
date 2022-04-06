@@ -359,7 +359,7 @@ fn handle_connection(mut stream: TcpStream, socket: SocketAddr) -> Result<(), IW
     // Close binary file directly after this block.
     {
         let binary_filename = format!("old/binary/{}_{}.dat", station_name, date_today);
-        let mut binary_file = File::options().append(true).open(&binary_filename)?;
+        let mut binary_file = File::options().append(true).create(true).open(&binary_filename)?;
         binary_file.write(&tcp_buffer)?;
         binary_file.flush()?;
         info!("Binary data written to: '{}'", binary_filename);
@@ -769,7 +769,7 @@ mod tests {
         let _ = WriteLogger::init(
             LevelFilter::Debug,
             log_config,
-            File::options().append(true).open("test_iridium_weatherstation.log").unwrap()
+            File::options().append(true).create(true).open("test_iridium_weatherstation.log").unwrap()
         );
 
         let config = IWConfiguration {
