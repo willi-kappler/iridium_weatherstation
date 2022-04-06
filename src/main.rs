@@ -11,16 +11,15 @@ mod process_data;
 
 
 use std::fs::File;
-use std::net::{TcpListener};
-use std::thread::{spawn, sleep};
+use std::thread::sleep;
 use std::time::Duration;
 
-use log::{info, debug, error};
+use log::{info, debug};
 use simplelog::{WriteLogger, LevelFilter, ConfigBuilder};
 use chrono::Local;
 
 use crate::config::IWConfiguration;
-use crate::process_data::handle_connection;
+use crate::process_data::start_server;
 
 
 fn main() {
@@ -33,7 +32,7 @@ fn main() {
 
     let _ = WriteLogger::init(
         LevelFilter::Debug,
-        log_config, 
+        log_config,
         File::create(log_file_name).unwrap()
     );
 
@@ -46,41 +45,7 @@ fn main() {
 
     debug!("Settings: {:?}", config);
 
-    let mut listeners = Vec::new();
-
-    for port in config.ports {
-        match TcpListener::bind(("0.0.0.0", port)) {
-            Ok(listener) => {
-                debug!("Create listener for port: '{}'", port);
-                listeners.push(listener);
-            }
-            Err(e) => {
-                error!("An error occurred while binding to port: '{}'", e);
-            }
-        }
-    }
-
-    for listener in listeners {
-        spawn(move || {
-            loop {
-                match listener.accept() {
-                    Ok((stream, socket)) => {
-                        match handle_connection(stream, socket) {
-                            Ok(_) => {
-                                debug!("Data was processed successfully");
-                            }
-                            Err(e) => {
-                                error!("An error occurred while processing the data: '{}'", e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("An error occurred while accepting the connection: '{}'", e);
-                    }
-                }
-            }
-        });
-    }
+    start_server(&config);
 
     loop {
         info!("Alive message");

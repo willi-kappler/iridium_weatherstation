@@ -5,19 +5,21 @@
 // A simple data processing tool written in Rust for one of the campbell iridium weather stations
 //
 
-use std::net::{TcpStream, SocketAddr};
+use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::io::{Read, Write, Cursor};
 use std::fs::File;
 use std::f64::{INFINITY, NEG_INFINITY, NAN};
+use std::thread::spawn;
 
 use log::{info, debug, error};
 use chrono::{Local, NaiveDateTime, Duration};
 use byteorder::{LittleEndian, BigEndian, ReadBytesExt};
 
+use crate::config::IWConfiguration;
 use crate::error::IWError;
 
 
-pub const HEADER_LENGTH: usize = 48;
+const HEADER_LENGTH1: usize = 48;
 const HEADER_LENGTH2: usize = 3;
 const ULONG_LEN: usize = 4;
 const FP2_LEN: usize = 2;
@@ -267,7 +269,7 @@ fn parse_binary_data(buffer: &[u8]) -> Result<IWStationData, IWError> {
     }
 }
 
-pub fn handle_connection(mut stream: TcpStream, socket: SocketAddr) -> Result<(), IWError> {
+fn handle_connection(mut stream: TcpStream, socket: SocketAddr) -> Result<(), IWError> {
     debug!("New connection from '{}'", socket);
 
     let port = stream.local_addr()?.port();
@@ -278,7 +280,7 @@ pub fn handle_connection(mut stream: TcpStream, socket: SocketAddr) -> Result<()
     let len = stream.read_to_end(&mut tcp_buffer)?;
     debug!("[{}], number of bytes received: '{}'", port, len);
 
-    if len < HEADER_LENGTH {
+    if len < HEADER_LENGTH1 {
         return Err(IWError::DataTooShort(len))
     }
 
@@ -293,7 +295,7 @@ pub fn handle_connection(mut stream: TcpStream, socket: SocketAddr) -> Result<()
         info!("Binary data written to: '{}'", binary_filename);
     }
 
-    let after_header = &tcp_buffer[HEADER_LENGTH..];
+    let after_header = &tcp_buffer[HEADER_LENGTH1..];
 
     debug!("[{}] Binary data: {:?}", port, after_header);
 
@@ -317,15 +319,62 @@ pub fn handle_connection(mut stream: TcpStream, socket: SocketAddr) -> Result<()
     Ok(())
 }
 
+pub fn start_server(config: &IWConfiguration) {
+    let mut listeners = Vec::new();
+
+    for port in config.ports.iter() {
+        match TcpListener::bind(("0.0.0.0", *port)) {
+            Ok(listener) => {
+                debug!("Create listener for port: '{}'", port);
+                listeners.push(listener);
+            }
+            Err(e) => {
+                error!("An error occurred while binding to port: '{}'", e);
+            }
+        }
+    }
+
+    for listener in listeners {
+        spawn(move || {
+            loop {
+                match listener.accept() {
+                    Ok((stream, socket)) => {
+                        match handle_connection(stream, socket) {
+                            Ok(_) => {
+                                debug!("Data was processed successfully");
+                            }
+                            Err(e) => {
+                                error!("An error occurred while processing the data: '{}'", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("An error occurred while accepting the connection: '{}'", e);
+                    }
+                }
+            }
+        });
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
+    use std::thread::sleep;
+    use std::time::Duration;
+    use std::net::TcpStream;
+    use std::io::Write;
+    use std::fs::File;
+
     use chrono::{NaiveDateTime};
+    use simplelog::{WriteLogger, LevelFilter, ConfigBuilder};
 
     use super::{u32_to_timestamp, u16_to_f64, parse_logger_status1, parse_logger_status2,
         parse_weather_data_single, parse_weather_data, get_data_length, parse_binary_data,
-        IWStationData, IWLoggerStatus, IWWeatherData};
+        start_server, IWStationData, IWLoggerStatus, IWWeatherData};
 
     use crate::error::IWError;
+    use crate::config::IWConfiguration;
 
     #[test]
     fn test_u32_to_timestamp() {
@@ -636,5 +685,87 @@ mod tests {
                 panic!("Expected IWError, got: '{:?}'", result);
             }
         }
+    }
+
+    fn send_data_to_server(data: &[u8]) {
+        // Give the server time to start up
+        sleep(Duration::from_secs(3));
+
+        let mut stream = TcpStream::connect("localhost:2100").unwrap();
+        stream.write(data).unwrap();
+    }
+
+    #[test]
+    fn test_start_sever1() {
+        let log_config = ConfigBuilder::new()
+            .set_time_to_local(true)
+            .set_time_format_str("%Y.%m.%d - %H:%M:%S")
+            .build();
+
+        let _ = WriteLogger::init(
+            LevelFilter::Debug,
+            log_config,
+            File::create("test_iridium_weatherstation.log").unwrap()
+        );
+
+        let config = IWConfiguration {
+            ports: vec![2100, 2101, 2103, 2104],
+            alive_message_intervall: 0,
+        };
+
+        start_server(&config);
+
+        send_data_to_server(&[0]);
+
+        const SBS_HEADER: &[u8] = &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let data1 = &[0];
+
+        send_data_to_server(&[SBS_HEADER, data1].concat());
+
+        let data2 = &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        send_data_to_server(&[SBS_HEADER, data2].concat());
+
+        let data3 = &[0, 0, 14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        send_data_to_server(&[SBS_HEADER, data3].concat());
+
+        let data4 = &[2, 0, 14, 128, 151, 171, 60, 0, 0, 0, 0, 68, 209, 109, 116, 96, 0];
+
+        send_data_to_server(&[SBS_HEADER, data4].concat());
+
+        let data5 = &[2, 0, 18, 0, 233, 172, 60, 0, 0, 0, 0, 68, 223, 109, 41, 96, 0, 255, 255, 255, 127];
+
+        send_data_to_server(&[SBS_HEADER, data5].concat());
+
+        let data6 = &[
+            2, 2, 160,
+            80, 78, 172, 60, 0, 0, 0, 0, 72, 226, 77, 25, 59, 230, 96, 59, 72, 202, 103, 236, 108, 228, 38, 163, 96, 0, 3, 198,
+            96, 92, 172, 60, 0, 0, 0, 0, 73, 232, 75, 195, 61, 182, 96, 59, 72, 198, 104, 28, 112, 144, 40, 150, 96, 0, 3, 198,
+            112, 106, 172, 60, 0, 0, 0, 0, 74, 154, 72, 225, 61, 206, 96, 59, 72, 205, 105, 63, 114, 182, 39, 208, 96, 0, 3, 197,
+            128, 120, 172, 60, 0, 0, 0, 0, 74, 245, 72, 228, 59, 0, 96, 59, 72, 229, 105, 24, 111, 230, 40, 175, 96, 0, 3, 197,
+            144, 134, 172, 60, 0, 0, 0, 0, 74, 221, 72, 255, 53, 220, 96, 59, 73, 10, 105, 154, 114, 72, 40, 176, 96, 0, 3, 197,
+            160, 148, 172, 60, 0, 0, 0, 0, 74, 186, 73, 168, 45, 68, 96, 59, 73, 52, 103, 107, 112, 24, 39, 180, 96, 0, 3, 197,
+            176, 162, 172, 60, 0, 0, 0, 0, 73, 239, 76, 58, 76, 58, 96, 60, 73, 97, 100, 185, 107, 24, 42, 17, 96, 0, 3, 197,
+            192, 176, 172, 60, 0, 0, 0, 0, 72, 94, 80, 54, 124, 228, 96, 60, 73, 143, 98, 23, 101, 20, 41, 131, 96, 0, 3, 198,
+            208, 190, 172, 60, 0, 0, 0, 0, 70, 207, 80, 250, 96, 0, 96, 60, 73, 179, 99, 213, 104, 92, 39, 29, 96, 0, 3, 198,
+            224, 204, 172, 60, 0, 0, 0, 0, 70, 26, 83, 45, 96, 0, 96, 60, 73, 205, 99, 77, 102, 204, 38, 110, 96, 0, 3, 199,
+            240, 218, 172, 60, 0, 0, 0, 0, 69, 125, 83, 233, 96, 0, 96, 60, 73, 218, 100, 0, 104, 2, 38, 139, 96, 0, 3, 199,
+            0, 233, 172, 60, 0, 0, 0, 0, 69, 84, 83, 104, 96, 0, 96, 60, 73, 218, 101, 109, 105, 116, 38, 7, 96, 0, 3, 199,
+            16, 247, 172, 60, 0, 0, 0, 0, 68, 232, 85, 209, 96, 0, 96, 60, 73, 212, 99, 113, 103, 198, 38, 156, 96, 0, 3, 199,
+            32, 5, 173, 60, 0, 0, 0, 0, 68, 40, 88, 108, 96, 0, 96, 60, 73, 197, 98, 12, 99, 162, 39, 83, 96, 0, 3, 199,
+            48, 19, 173, 60, 0, 0, 0, 0, 67, 215, 86, 197, 96, 0, 96, 60, 73, 178, 99, 24, 100, 176, 39, 126, 96, 0, 3, 199,
+            64, 33, 173, 60, 0, 0, 0, 0, 67, 209, 87, 185, 96, 0, 96, 60, 73, 159, 99, 192, 102, 224, 39, 133, 96, 0, 3, 199,
+            80, 47, 173, 60, 0, 0, 0, 0, 67, 171, 88, 146, 96, 0, 96, 60, 73, 136, 98, 193, 103, 78, 39, 79, 96, 0, 3, 198,
+            96, 61, 173, 60, 0, 0, 0, 0, 67, 54, 89, 202, 96, 0, 96, 60, 73, 112, 98, 114, 100, 146, 38, 236, 96, 0, 3, 198,
+            112, 75, 173, 60, 0, 0, 0, 0, 126, 41, 90, 207, 96, 0, 96, 60, 73, 88, 99, 4, 101, 60, 39, 69, 96, 0, 3, 198,
+            128, 89, 173, 60, 0, 0, 0, 0, 126, 155, 89, 185, 97, 252, 96, 60, 73, 63, 99, 176, 101, 220, 39, 100, 96, 0, 3, 199,
+            144, 103, 173, 60, 0, 0, 0, 0, 67, 87, 87, 243, 70, 54, 96, 59, 73, 37, 99, 29, 101, 130, 39, 129, 96, 0, 3, 199,
+            160, 117, 173, 60, 0, 0, 0, 0, 69, 33, 83, 233, 40, 184, 96, 59, 73, 12, 100, 22, 104, 2, 36, 166, 96, 0, 3, 199,
+            176, 131, 173, 60, 0, 0, 0, 0, 70, 189, 78, 129, 49, 40, 96, 59, 72, 244, 102, 3, 108, 118, 36, 161, 96, 0, 3, 200,
+            192, 145, 173, 60, 0, 0, 0, 0, 72, 114, 75, 16, 55, 146, 96, 59, 72, 222, 101, 224, 107, 54, 39, 133, 96, 0, 3, 199];
+
+        send_data_to_server(&[SBS_HEADER, data6].concat());
     }
 }
