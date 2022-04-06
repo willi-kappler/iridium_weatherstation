@@ -10,11 +10,11 @@ use std::io::{Read, Write, Cursor};
 use std::fs::File;
 use std::f64::{INFINITY, NEG_INFINITY, NAN};
 use std::thread::spawn;
+use std::path::Path;
 
 use log::{info, debug, error};
 use chrono::{Local, NaiveDateTime, Duration};
 use byteorder::{LittleEndian, BigEndian, ReadBytesExt};
-use serde_derive::Deserialize;
 
 use crate::config::IWConfiguration;
 use crate::error::IWError;
@@ -44,7 +44,7 @@ fn port_to_station(port: u16) -> String{
     }
 }
 
-#[derive(Clone, PartialEq, Debug, Deserialize)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct IWLoggerStatus {
     pub timestamp: String,
     pub solar_battery: f64,
@@ -53,7 +53,7 @@ pub struct IWLoggerStatus {
     pub cf_card: u32,
 }
 
-#[derive(Clone, PartialEq, Debug, Deserialize)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct IWWeatherData {
     pub timestamp: String,
     pub air_temperature: f64,
@@ -272,6 +272,60 @@ fn parse_binary_data(buffer: &[u8]) -> Result<IWStationData, IWError> {
     }
 }
 
+fn write_single_data(folder: &str, data: &IWLoggerStatus) -> Result<(), IWError> {
+    let file_name = format!("{}/all_data_battery.csv", folder);
+
+    let mut file = if Path::new(&file_name).exists() {
+        File::options().append(true).open(&file_name)?
+    } else {
+        let mut file = File::options().create_new(true).write(true).open(&file_name)?;
+        write!(file, "Timestamp,Station name,Battery voltage,Lithium voltage,Wind Diag,CF Card\n")?;
+        write!(file, "YYYY-DD-MM HH:MM:SS,String,[V],[V],Float,Int32\n")?;
+        file
+    };
+
+    write!(file, "{},{},{},{},{}\n",
+        data.timestamp,
+        data.solar_battery,
+        data.lithium_battery,
+        data.wind_diag,
+        data.cf_card
+    )?;
+
+    Ok(())
+}
+
+fn write_multiple_data(folder: &str, data: &[IWWeatherData]) -> Result<(), IWError> {
+    let file_name = format!("{}/all_data_multiple.csv", folder);
+
+    let mut file = if Path::new(&file_name).exists() {
+        File::options().append(true).open(&file_name)?
+    } else {
+        let mut file = File::options().create_new(true).write(true).open(&file_name)?;
+        write!(file, "Timestamp,Station name,Air temperature,Air relative humidity,Solar radiation,Soil water content,Soil temperature,Wind speed,Wind max,Wind direction,Precipitation,Air pressure\n")?;
+        write!(file, "YYYY-MM-DD HH:MM:SS,String,Deg C,%,W/mA²,mA³/mA³,Deg C,m/s,m/s,degrees,mm,mbar\n")?;
+        file
+    };
+
+    for entry in data.iter() {
+        write!(file, "{},{},{},{},{},{},{},{},{},{},{}\n",
+            entry.timestamp,
+            entry.air_temperature,
+            entry.air_relative_humidity,
+            entry.solar_radiation,
+            entry.soil_water_content,
+            entry.soil_temperature,
+            entry.wind_speed,
+            entry.wind_max,
+            entry.wind_direction,
+            entry.precipitation,
+            entry.air_pressure,
+        )?;
+    }
+
+    Ok(())
+}
+
 fn handle_connection(mut stream: TcpStream, socket: SocketAddr) -> Result<(), IWError> {
     debug!("New connection from '{}'", socket);
 
@@ -302,29 +356,26 @@ fn handle_connection(mut stream: TcpStream, socket: SocketAddr) -> Result<(), IW
 
     debug!("[{}] Binary data: {:?}", port, after_header);
 
-    match parse_binary_data(after_header) {
-        Ok(data) => {
-            let folder = match port {
-                2100 => "2100_Na",
-                2101 => "2101_SG",
-                2102 => "2102_PdA",
-                2103 => "2103_LC",
-                2104 => "2104_Tue",
-                _ => "unknown",
-            };
+    let data = parse_binary_data(after_header)?;
 
-            // Export data as CSV and as JSON
-            match data {
-                IWStationData::SingleData(data) => {
-                    todo!();
-                }
-                IWStationData::MultipleData(data) => {
-                    todo!();
-                }
-            }
+    let folder = match port {
+        2100 => "2100_Na",
+        2101 => "2101_SG",
+        2102 => "2102_PdA",
+        2103 => "2103_LC",
+        2104 => "2104_Tue",
+        _ => "unknown",
+    };
+
+    // Export data as CSV
+    match data {
+        IWStationData::SingleData(data) => {
+            debug!("Number of entries: 1");
+            write_single_data(folder, &data)?;
         }
-        Err(e) => {
-            error!("An error occurred while parsing the data: '{}'", e);
+        IWStationData::MultipleData(data) => {
+            debug!("Number of entries: {}", data.len());
+            write_multiple_data(folder, &data)?;
         }
     }
 
@@ -353,7 +404,9 @@ pub fn start_server(config: &IWConfiguration) {
                     Ok((stream, socket)) => {
                         match handle_connection(stream, socket) {
                             Ok(_) => {
-                                debug!("Data was processed successfully");
+                                info!("Data was processed successfully");
+                                let line = "#".repeat(60);
+                                info!("{}", line);
                             }
                             Err(e) => {
                                 error!("An error occurred while processing the data: '{}'", e);
@@ -703,7 +756,7 @@ mod tests {
         let _ = WriteLogger::init(
             LevelFilter::Debug,
             log_config,
-            File::create("test_iridium_weatherstation.log").unwrap()
+            File::options().append(true).open("test_iridium_weatherstation.log").unwrap()
         );
 
         let config = IWConfiguration {
@@ -765,5 +818,8 @@ mod tests {
             192, 145, 173, 60, 0, 0, 0, 0, 72, 114, 75, 16, 55, 146, 96, 59, 72, 222, 101, 224, 107, 54, 39, 133, 96, 0, 3, 199];
 
         send_data_to_server(&[SBS_HEADER, data6].concat());
+
+        // Wait until all data is written to disk
+        sleep(Duration::from_secs(3));
     }
 }

@@ -33,7 +33,7 @@ fn main() {
     let _ = WriteLogger::init(
         LevelFilter::Debug,
         log_config,
-        File::create(log_file_name).unwrap()
+        File::options().append(true).open(log_file_name).unwrap()
     );
 
     info!("Data processor started.");
