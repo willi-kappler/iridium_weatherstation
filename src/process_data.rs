@@ -275,6 +275,10 @@ fn parse_binary_data(buffer: &[u8]) -> Result<IWStationData, IWError> {
 fn write_single_data(folder: &str, data: &IWLoggerStatus) -> Result<(), IWError> {
     let file_name = format!("{}/all_data_battery.csv", folder);
 
+    // TODO: use File::fn metadata(&self) -> Result<Metadata>
+    // and then Metadata::fn len(&self) -> u64
+    // instead of Path::exists()
+
     let mut file = if Path::new(&file_name).exists() {
         File::options().append(true).open(&file_name)?
     } else {
@@ -299,6 +303,10 @@ fn write_single_data(folder: &str, data: &IWLoggerStatus) -> Result<(), IWError>
 
 fn write_multiple_data(folder: &str, data: &[IWWeatherData]) -> Result<(), IWError> {
     let file_name = format!("{}/all_data_multiple.csv", folder);
+
+    // TODO: use File::fn metadata(&self) -> Result<Metadata>
+    // and then Metadata::fn len(&self) -> u64
+    // instead of Path::exists()
 
     let mut file = if Path::new(&file_name).exists() {
         File::options().append(true).open(&file_name)?
