@@ -272,7 +272,7 @@ fn parse_binary_data(buffer: &[u8]) -> Result<IWStationData, IWError> {
     }
 }
 
-fn write_single_data(folder: &str, data: &IWLoggerStatus) -> Result<(), IWError> {
+fn write_single_data(folder: &str, data: &IWLoggerStatus, name: &str) -> Result<(), IWError> {
     let file_name = format!("{}/all_data_battery.csv", folder);
 
     // TODO: use File::fn metadata(&self) -> Result<Metadata>
@@ -288,8 +288,9 @@ fn write_single_data(folder: &str, data: &IWLoggerStatus) -> Result<(), IWError>
         file
     };
 
-    write!(file, "{},{},{},{},{}\n",
+    write!(file, "{},{},{},{},{},{}\n",
         data.timestamp,
+        name,
         data.solar_battery,
         data.lithium_battery,
         data.wind_diag,
@@ -301,7 +302,7 @@ fn write_single_data(folder: &str, data: &IWLoggerStatus) -> Result<(), IWError>
     Ok(())
 }
 
-fn write_multiple_data(folder: &str, data: &[IWWeatherData]) -> Result<(), IWError> {
+fn write_multiple_data(folder: &str, data: &[IWWeatherData], name: &str) -> Result<(), IWError> {
     let file_name = format!("{}/all_data_multiple.csv", folder);
 
     // TODO: use File::fn metadata(&self) -> Result<Metadata>
@@ -318,8 +319,9 @@ fn write_multiple_data(folder: &str, data: &[IWWeatherData]) -> Result<(), IWErr
     };
 
     for entry in data.iter() {
-        write!(file, "{},{},{},{},{},{},{},{},{},{},{}\n",
+        write!(file, "{},{},{},{},{},{},{},{},{},{},{},{}\n",
             entry.timestamp,
+            name,
             entry.air_temperature,
             entry.air_relative_humidity,
             entry.solar_radiation,
@@ -384,11 +386,11 @@ fn handle_connection(mut stream: TcpStream, socket: SocketAddr) -> Result<(), IW
     match data {
         IWStationData::SingleData(data) => {
             debug!("Number of entries: 1");
-            write_single_data(folder, &data)?;
+            write_single_data(folder, &data, &station_name)?;
         }
         IWStationData::MultipleData(data) => {
             debug!("Number of entries: {}", data.len());
-            write_multiple_data(folder, &data)?;
+            write_multiple_data(folder, &data, &station_name)?;
         }
     }
 
