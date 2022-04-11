@@ -2,7 +2,7 @@
 
 # This Python script plots the data from the weather stations in Chile.
 # Written by Willi Kappler (willi.kappler@uni-tuebingen.de)
-# Version V0.3 (2017.12.8)
+# Version V0.4 (2022.04.6)
 # ESD - Earth System Dynamics:
 # http://www.geo.uni-tuebingen.de/arbeitsgruppen/mineralogie-geodynamik/forschungsbereich/geologie-geodynamik/workgroup.html
 
@@ -13,7 +13,13 @@ import os.path
 import matplotlib
 import math
 import sys
-import mysql.connector
+import smtplib
+
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email.utils import COMMASPACE, formatdate
+from email import encoders
 
 # Set output png image to high quality
 matplotlib.use("agg")
@@ -42,9 +48,8 @@ class PlotOptions:
         self.ymax = [0, 0, 0, 0]
 
 def check_one_data_set(table, timedelta):
-    plot_options.cursor.execute("""SELECT MIN(timestamp), MAX(timestamp) FROM {}
-        WHERE station LIKE '{}'""".format(table, plot_options.station_name))
-    result = plot_options.cursor.fetchall()
+    # TODO: read in CSV data
+
     (start_timestamp, end_timestamp) = result[0]
 
     if start_timestamp and end_timestamp and (start_timestamp > datetime.datetime(2016, 11, 1)):
@@ -68,52 +73,6 @@ def check_one_data_set(table, timedelta):
 def check_for_missing_data(plot_options):
     check_one_data_set("battery_data", datetime.timedelta(days=1))
     check_one_data_set("multiple_data", datetime.timedelta(hours=1))
-
-def export_csv(plot_options):
-    print("Export to CVS ({})".format(plot_options.station_name))
-
-    plot_options.cursor.execute("""SELECT * FROM battery_data WHERE station LIKE '{}' ORDER BY timestamp
-        """.format(plot_options.station_name))
-
-    with open("{}/all_data_battery.csv".format(plot_options.folder), "w") as csv_out:
-        csv_out.write("Timestamp, Station name, Battery voltage, Lithium voltage, Wind Diag\n")
-        for (_, timestamp, station_name, battery_voltage, lithium_voltage, wind_diag) in plot_options.cursor:
-            csv_out.write("'{}', {}, {}, {}, {}\n".format(timestamp, station_name, battery_voltage, lithium_voltage, wind_diag))
-
-    plot_options.cursor.execute("""SELECT * FROM multiple_data WHERE station LIKE '{}' ORDER BY timestamp
-        """.format(plot_options.station_name))
-
-    with open("{}/all_data_multiple.csv".format(plot_options.folder), "w") as csv_out:
-        csv_out.write("Timestamp, Station name, Air temperature, Air relative humidity, Solar radiation, Soil water content, Soil temperature, Wind speed, Wind max, Wind direction, Precipitation, Air pressure\n")
-        for (_, timestamp, station_name, air_temperature, air_relative_humidity,
-            solar_radiation, soil_water_content, soil_temperature, wind_speed,
-            wind_max, wind_direction, precipitation, air_pressure) in plot_options.cursor:
-            csv_out.write("'{}', {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}\n".format(
-            timestamp, station_name, air_temperature,
-            air_relative_humidity, solar_radiation, soil_water_content, soil_temperature,
-            wind_speed, wind_max, wind_direction, precipitation, air_pressure))
-
-
-
-def data_from_db(plot_options, query):
-    result1 = []
-    result2 = []
-
-    if plot_options.weekly:
-        actual_query = """SELECT timestamp, {} FROM {} WHERE station LIKE '{}'
-            AND timestamp > DATE_SUB(NOW(), INTERVAL 1 WEEK) ORDER BY timestamp""".format(query[0],
-            query[1], plot_options.station_name)
-    else:
-        actual_query = """SELECT timestamp, {} FROM {} WHERE station LIKE '{}'
-            ORDER BY timestamp""".format(query[0], query[1], plot_options.station_name)
-
-    plot_options.cursor.execute(actual_query)
-
-    for values in plot_options.cursor:
-        result1.append(values[0])
-        result2.append(values[1])
-
-    return (result1, result2)
 
 def plot_data(plot_options):
     print("Creating plots for {} in {}".format(plot_options.station_name, plot_options.folder))
@@ -258,6 +217,34 @@ def plot_data_4_plots(plot_options):
     fig.savefig(plot_options.file_path, bbox_inches='tight')
     plt.close(fig)
 
+def send_via_email(gfx_files, message):
+    send_from = "willi.kappler@uni-tuebingen.de"
+    send_to = ["willi.kappler@uni-tuebingen.de"]
+
+    msg = MIMEMultipart()
+    msg["From"] = send_from
+    msg["To"] = COMMASPACE.join(send_to)
+    msg["Date"] = formatdate(localtime=True)
+    msg["Subject"] = message
+
+    msg.attach(MIMEText(message))
+
+    for path in gfx_files:
+        part = MIMEBase("application", "octet-stream")
+        with open(path, "rb") as file:
+            part.set_payload(file.read())
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition",
+                        'attachment; filename="{}"'.format(os.path.basename(path)))
+        msg.attach(part)
+
+    smtp = smtplib.SMTP("smtpserv.uni-tuebingen.de", 25)
+    smtp.starttls()
+    smtp.login("", "")
+    smtp.sendmail(send_from, send_to, msg.as_string())
+    smtp.quit()
+    
+
 if __name__ == "__main__":
     print("data plotter")
 
@@ -270,19 +257,12 @@ if __name__ == "__main__":
     todays_date_dt = datetime.datetime.now()
     plot_options.todays_date = todays_date_dt.strftime("%Y.%m.%d %H:%M:%S")
 
-    db_connection = mysql.connector.connect(user="",
-        password="", host="",
-        database="")
-
-    plot_options.cursor = db_connection.cursor()
-
     for folder in glob.glob("21*"):
         plot_options.folder = folder
         plot_options.station_name = name_from_port(plot_options.folder)
         check_for_missing_data(plot_options)
         plot_data(plot_options)
-        export_csv(plot_options)
 
-    db_connection.commit()
-    plot_options.cursor.close()
-    db_connection.close()
+    send_via_email(glob.glob("21*/*_weekly.png"), "Weather Stations: Last week data")
+    send_via_email(glob.glob("21*/*_full.png"), "Weather Stations: Full time series")
+
