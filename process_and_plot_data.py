@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+
+# This Python script plots the data from the weather stations in Chile.
+# Written by Willi Kappler (willi.kappler@uni-tuebingen.de)
+# Version V0.3 (2017.12.8)
+# ESD - Earth System Dynamics:
+# http://www.geo.uni-tuebingen.de/arbeitsgruppen/mineralogie-geodynamik/forschungsbereich/geologie-geodynamik/workgroup.html
+
+import glob
+import re
+import datetime
+import os.path
+import matplotlib
+import math
+import sys
+import mysql.connector
+
+# Set output png image to high quality
+matplotlib.use("agg")
+
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+# Determine the name of the statiion
+def name_from_port(folder):
+    if "2100" in folder:
+        return "Nahuelbuta"
+    elif "2101" in folder:
+        return "Santa_Gracia"
+    elif "2102" in folder:
+        return "Pan_de_Azucar"
+    elif "2103" in folder:
+        return "La_Campana"
+    elif "2104" in folder:
+        return "Wanne_Tuebingen"
+
+class PlotOptions:
+    def __init__(self):
+        self.querys = ["", "", "", ""]
+        self.y_labels = ["", "", "", ""]
+        self.ymin = [0, 0, 0, 0]
+        self.ymax = [0, 0, 0, 0]
+
+def check_one_data_set(table, timedelta):
+    plot_options.cursor.execute("""SELECT MIN(timestamp), MAX(timestamp) FROM {}
+        WHERE station LIKE '{}'""".format(table, plot_options.station_name))
+    result = plot_options.cursor.fetchall()
+    (start_timestamp, end_timestamp) = result[0]
+
+    if start_timestamp and end_timestamp and (start_timestamp > datetime.datetime(2016, 11, 1)):
+        end_timestamp = end_timestamp - datetime.timedelta(days=3)
+        print("Checking dates from {} to {} ({})".format(start_timestamp, end_timestamp, table))
+
+        current_timestamp = start_timestamp
+
+        while current_timestamp < end_timestamp:
+            current_timestamp = current_timestamp + timedelta
+            plot_options.cursor.execute("""SELECT timestamp FROM {} WHERE timestamp = '{}'
+                AND station LIKE '{}'""".format(table, current_timestamp, plot_options.station_name))
+            result = plot_options.cursor.fetchall()
+            # print("{}: {}".format(current_timestamp, result))
+            if not result:
+                print("Missing data: {}".format(current_timestamp))
+                plot_options.cursor.execute("""INSERT INTO {} (timestamp, station)
+                    VALUES (%s, %s)""".format(table), (current_timestamp, plot_options.station_name))
+                print("Insert result: {}".format(plot_options.cursor.rowcount))
+
+def check_for_missing_data(plot_options):
+    check_one_data_set("battery_data", datetime.timedelta(days=1))
+    check_one_data_set("multiple_data", datetime.timedelta(hours=1))
+
+def export_csv(plot_options):
+    print("Export to CVS ({})".format(plot_options.station_name))
+
+    plot_options.cursor.execute("""SELECT * FROM battery_data WHERE station LIKE '{}' ORDER BY timestamp
+        """.format(plot_options.station_name))
+
+    with open("{}/all_data_battery.csv".format(plot_options.folder), "w") as csv_out:
+        csv_out.write("Timestamp, Station name, Battery voltage, Lithium voltage, Wind Diag\n")
+        for (_, timestamp, station_name, battery_voltage, lithium_voltage, wind_diag) in plot_options.cursor:
+            csv_out.write("'{}', {}, {}, {}, {}\n".format(timestamp, station_name, battery_voltage, lithium_voltage, wind_diag))
+
+    plot_options.cursor.execute("""SELECT * FROM multiple_data WHERE station LIKE '{}' ORDER BY timestamp
+        """.format(plot_options.station_name))
+
+    with open("{}/all_data_multiple.csv".format(plot_options.folder), "w") as csv_out:
+        csv_out.write("Timestamp, Station name, Air temperature, Air relative humidity, Solar radiation, Soil water content, Soil temperature, Wind speed, Wind max, Wind direction, Precipitation, Air pressure\n")
+        for (_, timestamp, station_name, air_temperature, air_relative_humidity,
+            solar_radiation, soil_water_content, soil_temperature, wind_speed,
+            wind_max, wind_direction, precipitation, air_pressure) in plot_options.cursor:
+            csv_out.write("'{}', {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}\n".format(
+            timestamp, station_name, air_temperature,
+            air_relative_humidity, solar_radiation, soil_water_content, soil_temperature,
+            wind_speed, wind_max, wind_direction, precipitation, air_pressure))
+
+
+
+def data_from_db(plot_options, query):
+    result1 = []
+    result2 = []
+
+    if plot_options.weekly:
+        actual_query = """SELECT timestamp, {} FROM {} WHERE station LIKE '{}'
+            AND timestamp > DATE_SUB(NOW(), INTERVAL 1 WEEK) ORDER BY timestamp""".format(query[0],
+            query[1], plot_options.station_name)
+    else:
+        actual_query = """SELECT timestamp, {} FROM {} WHERE station LIKE '{}'
+            ORDER BY timestamp""".format(query[0], query[1], plot_options.station_name)
+
+    plot_options.cursor.execute(actual_query)
+
+    for values in plot_options.cursor:
+        result1.append(values[0])
+        result2.append(values[1])
+
+    return (result1, result2)
+
+def plot_data(plot_options):
+    print("Creating plots for {} in {}".format(plot_options.station_name, plot_options.folder))
+
+    plot_options.plot_file_name = "plot1"
+
+    plot_options.querys[0] = ["wind_speed", "multiple_data"]
+    plot_options.y_labels[0] = "Wind Speed (180 min. Average), 3 m [$m/s$]"
+    plot_options.ymin[0] = -1.0
+    plot_options.ymax[0] = 25.0
+
+    plot_options.querys[1] = ["wind_max", "multiple_data"]
+    plot_options.y_labels[1] = "Wind Max, 3 m [$m/s$]"
+    plot_options.ymin[1] = -1.0
+    plot_options.ymax[1] = 25.0
+
+    plot_options.querys[2] = ["wind_direction", "multiple_data"]
+    plot_options.y_labels[2] = "Wind Direction, 3 m [degrees]"
+    plot_options.ymin[2] = -10.0
+    plot_options.ymax[2] = 360.0
+
+    plot_options.querys[3] = ["battery_voltage", "battery_data"]
+    plot_options.y_labels[3] = "Battery Voltage [V]"
+    plot_options.ymin[3] = -1.0
+    plot_options.ymax[3] = 14.0
+
+    plot_data_full(plot_options)
+    plot_data_weekly(plot_options)
+
+
+    plot_options.plot_file_name = "plot2"
+
+    plot_options.querys[0] = ["air_temperature", "multiple_data"]
+    plot_options.y_labels[0] = "Air Temperature, 2 m [deg C]"
+    plot_options.ymin[0] = -10.0
+    plot_options.ymax[0] = None
+
+    plot_options.querys[1] = ["air_relative_humidity", "multiple_data"]
+    plot_options.y_labels[1] = "Air Rel. Humidity, 2 m [%]"
+    plot_options.ymin[1] = -10.0
+    plot_options.ymax[1] = 110.0
+
+    plot_options.querys[2] = ["air_pressure", "multiple_data"]
+    plot_options.y_labels[2] = "Air Pressure [mbar]"
+    plot_options.ymin[2] = None
+    plot_options.ymax[2] = None
+
+    plot_options.querys[3] = ["solar_radiation", "multiple_data"]
+    plot_options.y_labels[3] = "Solar Radiation [$W/m^2$]"
+    plot_options.ymin[3] = -100.0
+    plot_options.ymax[3] = None
+
+    plot_data_full(plot_options)
+    plot_data_weekly(plot_options)
+
+
+    plot_options.plot_file_name = "plot3"
+
+    plot_options.querys[0] = ["soil_water_content", "multiple_data"]
+    plot_options.y_labels[0] = "Soil Water, 25 cm depth [$m^3/m^3$]"
+    plot_options.ymin[0] = -0.005
+    plot_options.ymax[0] = 0.6
+
+    plot_options.querys[1] = ["soil_temperature", "multiple_data"]
+    plot_options.y_labels[1] = "Soil Temperature, 25 cm depth [deg C]"
+    plot_options.ymin[1] = -5.0
+    plot_options.ymax[1] = 50.0
+
+    plot_options.querys[2] = ["precipitation", "multiple_data"]
+    plot_options.y_labels[2] = "Precipitation [mm]"
+    plot_options.ymin[2] = -1.0
+    plot_options.ymax[2] = None
+
+    plot_options.querys[3] = ["li_battery_voltage", "battery_data"]
+    plot_options.y_labels[3] = "Li Battery Voltage [V]"
+    plot_options.ymin[3] = -1.0
+    plot_options.ymax[3] = 4.0
+
+    plot_data_full(plot_options)
+    plot_data_weekly(plot_options)
+
+
+def plot_data_full(plot_options):
+    plot_options.file_path = "{}/{}_{}_full.png".format(plot_options.folder,
+        plot_options.station_name, plot_options.plot_file_name)
+    plot_options.title = "{} - Full Time Series - (as of {})".format(plot_options.station_name,
+        plot_options.todays_date)
+    plot_options.weekly = False
+    plot_data_4_plots(plot_options)
+
+def plot_data_weekly(plot_options):
+    plot_options.file_path = "{}/{}_{}_weekly.png".format(plot_options.folder,
+        plot_options.station_name, plot_options.plot_file_name)
+    plot_options.title = "{} - Last Week Time Series - (as of {})".format(plot_options.station_name,
+        plot_options.todays_date)
+    plot_options.weekly = True
+    plot_data_4_plots(plot_options)
+
+def plot_data_4_plots(plot_options):
+    # Create 4 subplots
+    fig, all_axes = plt.subplots(4, 1, figsize=(10,20), sharex=True)
+    plt.xticks(rotation=90)
+    all_axes[0].set_title(plot_options.title)
+
+    x_values = []
+    y_values = []
+    for query in plot_options.querys:
+        (res1, res2) = data_from_db(plot_options, query)
+        x_values.append(res1)
+        y_values.append(res2)
+
+    # Process each subplot
+    for i, ax in enumerate(all_axes):
+        # print("len x_values: {}, len x_values[{}]: {}".format(len(x_values), i, len(x_values[i])))
+        # print("len y_values: {}, len y_values[{}]: {}".format(len(y_values), i, len(y_values[i])))
+        if len(y_values[i]) > 0:
+            if plot_options.weekly:
+                ax.plot(x_values[i], y_values[i], "-o")
+            else:
+                ax.plot(x_values[i], y_values[i])
+            ax.set_ylabel(plot_options.y_labels[i])
+            if not plot_options.ymin[i]:
+                values = [value for value in y_values[i] if value]
+                min_value = min(values) if len(values) > 0 else 0.0
+                plot_options.ymin[i] = min_value * 0.9 if min_value > 0.0 else min_value * 1.1
+            if not plot_options.ymax[i]:
+                values = [value for value in y_values[i] if value]
+                max_value = max(values) if len(values) > 0 else 0.0
+                plot_options.ymax[i] = max_value * 1.1 if max_value > 0.0 else max_value * 0.9
+            ax.set_ylim(plot_options.ymin[i], plot_options.ymax[i])
+            ax.grid(True)
+
+    # Set x labels for last subplot
+    if plot_options.weekly:
+        all_axes[3].xaxis.set_major_locator(plot_options.day_locator_daily)
+    else:
+        all_axes[3].xaxis.set_major_locator(plot_options.day_locator)
+
+    all_axes[3].xaxis.set_major_formatter(plot_options.date_formatter)
+
+    # Prepare file name and save as png
+    fig.savefig(plot_options.file_path, bbox_inches='tight')
+    plt.close(fig)
+
+if __name__ == "__main__":
+    print("data plotter")
+
+    plot_options = PlotOptions()
+
+    # Setup how date is formatted and selected
+    plot_options.day_locator = mdates.DayLocator(interval=10)
+    plot_options.day_locator_daily = mdates.DayLocator()
+    plot_options.date_formatter = mdates.DateFormatter("%Y.%m.%d")
+    todays_date_dt = datetime.datetime.now()
+    plot_options.todays_date = todays_date_dt.strftime("%Y.%m.%d %H:%M:%S")
+
+    db_connection = mysql.connector.connect(user="",
+        password="", host="",
+        database="")
+
+    plot_options.cursor = db_connection.cursor()
+
+    for folder in glob.glob("21*"):
+        plot_options.folder = folder
+        plot_options.station_name = name_from_port(plot_options.folder)
+        check_for_missing_data(plot_options)
+        plot_data(plot_options)
+        export_csv(plot_options)
+
+    db_connection.commit()
+    plot_options.cursor.close()
+    db_connection.close()
