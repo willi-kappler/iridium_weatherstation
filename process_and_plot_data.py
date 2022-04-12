@@ -7,12 +7,11 @@
 # http://www.geo.uni-tuebingen.de/arbeitsgruppen/mineralogie-geodynamik/forschungsbereich/geologie-geodynamik/workgroup.html
 
 import glob
-import re
+#import re
 import datetime
 import os.path
-import matplotlib
-import math
-import sys
+#import math
+#import sys
 import smtplib
 
 from email.mime.multipart import MIMEMultipart
@@ -22,53 +21,40 @@ from email.utils import COMMASPACE, formatdate
 from email import encoders
 
 # Set output png image to high quality
+import matplotlib
 matplotlib.use("agg")
 
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-# Determine the name of the statiion
-def name_from_port(folder):
-    if "2100" in folder:
+# Determine the name of the station
+def name_from_port(data_folder):
+    if "2100" in data_folder:
         return "Nahuelbuta"
-    elif "2101" in folder:
+    elif "2101" in data_folder:
         return "Santa_Gracia"
-    elif "2102" in folder:
+    elif "2102" in data_folder:
         return "Pan_de_Azucar"
-    elif "2103" in folder:
+    elif "2103" in data_folder:
         return "La_Campana"
-    elif "2104" in folder:
+    elif "2104" in data_folder:
         return "Wanne_Tuebingen"
 
 class PlotOptions:
     def __init__(self):
-        self.querys = ["", "", "", ""]
+        self.queries = ["", "", "", ""]
         self.y_labels = ["", "", "", ""]
         self.ymin = [0, 0, 0, 0]
         self.ymax = [0, 0, 0, 0]
 
-def check_one_data_set(table, timedelta):
-    # TODO: read in CSV data
+def data_from_csv(plot_options, query):
+    x_values = []
+    y_values = []
 
-    (start_timestamp, end_timestamp) = result[0]
+    return (x_values, y_values)
 
-    if start_timestamp and end_timestamp and (start_timestamp > datetime.datetime(2016, 11, 1)):
-        end_timestamp = end_timestamp - datetime.timedelta(days=3)
-        print("Checking dates from {} to {} ({})".format(start_timestamp, end_timestamp, table))
-
-        current_timestamp = start_timestamp
-
-        while current_timestamp < end_timestamp:
-            current_timestamp = current_timestamp + timedelta
-            plot_options.cursor.execute("""SELECT timestamp FROM {} WHERE timestamp = '{}'
-                AND station LIKE '{}'""".format(table, current_timestamp, plot_options.station_name))
-            result = plot_options.cursor.fetchall()
-            # print("{}: {}".format(current_timestamp, result))
-            if not result:
-                print("Missing data: {}".format(current_timestamp))
-                plot_options.cursor.execute("""INSERT INTO {} (timestamp, station)
-                    VALUES (%s, %s)""".format(table), (current_timestamp, plot_options.station_name))
-                print("Insert result: {}".format(plot_options.cursor.rowcount))
+def check_one_data_set(data_type, time_frame):
+    pass
 
 def check_for_missing_data(plot_options):
     check_one_data_set("battery_data", datetime.timedelta(days=1))
@@ -79,22 +65,22 @@ def plot_data(plot_options):
 
     plot_options.plot_file_name = "plot1"
 
-    plot_options.querys[0] = ["wind_speed", "multiple_data"]
+    plot_options.queries[0] = ["wind_speed", "multiple_data"]
     plot_options.y_labels[0] = "Wind Speed (180 min. Average), 3 m [$m/s$]"
     plot_options.ymin[0] = -1.0
     plot_options.ymax[0] = 25.0
 
-    plot_options.querys[1] = ["wind_max", "multiple_data"]
+    plot_options.queries[1] = ["wind_max", "multiple_data"]
     plot_options.y_labels[1] = "Wind Max, 3 m [$m/s$]"
     plot_options.ymin[1] = -1.0
     plot_options.ymax[1] = 25.0
 
-    plot_options.querys[2] = ["wind_direction", "multiple_data"]
+    plot_options.queries[2] = ["wind_direction", "multiple_data"]
     plot_options.y_labels[2] = "Wind Direction, 3 m [degrees]"
     plot_options.ymin[2] = -10.0
     plot_options.ymax[2] = 360.0
 
-    plot_options.querys[3] = ["battery_voltage", "battery_data"]
+    plot_options.queries[3] = ["battery_voltage", "battery_data"]
     plot_options.y_labels[3] = "Battery Voltage [V]"
     plot_options.ymin[3] = -1.0
     plot_options.ymax[3] = 14.0
@@ -105,22 +91,22 @@ def plot_data(plot_options):
 
     plot_options.plot_file_name = "plot2"
 
-    plot_options.querys[0] = ["air_temperature", "multiple_data"]
+    plot_options.queries[0] = ["air_temperature", "multiple_data"]
     plot_options.y_labels[0] = "Air Temperature, 2 m [deg C]"
     plot_options.ymin[0] = -10.0
     plot_options.ymax[0] = None
 
-    plot_options.querys[1] = ["air_relative_humidity", "multiple_data"]
+    plot_options.queries[1] = ["air_relative_humidity", "multiple_data"]
     plot_options.y_labels[1] = "Air Rel. Humidity, 2 m [%]"
     plot_options.ymin[1] = -10.0
     plot_options.ymax[1] = 110.0
 
-    plot_options.querys[2] = ["air_pressure", "multiple_data"]
+    plot_options.queries[2] = ["air_pressure", "multiple_data"]
     plot_options.y_labels[2] = "Air Pressure [mbar]"
     plot_options.ymin[2] = None
     plot_options.ymax[2] = None
 
-    plot_options.querys[3] = ["solar_radiation", "multiple_data"]
+    plot_options.queries[3] = ["solar_radiation", "multiple_data"]
     plot_options.y_labels[3] = "Solar Radiation [$W/m^2$]"
     plot_options.ymin[3] = -100.0
     plot_options.ymax[3] = None
@@ -131,22 +117,22 @@ def plot_data(plot_options):
 
     plot_options.plot_file_name = "plot3"
 
-    plot_options.querys[0] = ["soil_water_content", "multiple_data"]
+    plot_options.queries[0] = ["soil_water_content", "multiple_data"]
     plot_options.y_labels[0] = "Soil Water, 25 cm depth [$m^3/m^3$]"
     plot_options.ymin[0] = -0.005
     plot_options.ymax[0] = 0.6
 
-    plot_options.querys[1] = ["soil_temperature", "multiple_data"]
+    plot_options.queries[1] = ["soil_temperature", "multiple_data"]
     plot_options.y_labels[1] = "Soil Temperature, 25 cm depth [deg C]"
     plot_options.ymin[1] = -5.0
     plot_options.ymax[1] = 50.0
 
-    plot_options.querys[2] = ["precipitation", "multiple_data"]
+    plot_options.queries[2] = ["precipitation", "multiple_data"]
     plot_options.y_labels[2] = "Precipitation [mm]"
     plot_options.ymin[2] = -1.0
     plot_options.ymax[2] = None
 
-    plot_options.querys[3] = ["li_battery_voltage", "battery_data"]
+    plot_options.queries[3] = ["li_battery_voltage", "battery_data"]
     plot_options.y_labels[3] = "Li Battery Voltage [V]"
     plot_options.ymin[3] = -1.0
     plot_options.ymax[3] = 4.0
@@ -179,8 +165,8 @@ def plot_data_4_plots(plot_options):
 
     x_values = []
     y_values = []
-    for query in plot_options.querys:
-        (res1, res2) = data_from_db(plot_options, query)
+    for query in plot_options.queries:
+        (res1, res2) = data_from_csv(plot_options, query)
         x_values.append(res1)
         y_values.append(res2)
 
@@ -263,6 +249,6 @@ if __name__ == "__main__":
         check_for_missing_data(plot_options)
         plot_data(plot_options)
 
-    send_via_email(glob.glob("21*/*_weekly.png"), "Weather Stations: Last week data")
-    send_via_email(glob.glob("21*/*_full.png"), "Weather Stations: Full time series")
+    #send_via_email(glob.glob("21*/*_weekly.png"), "Weather Stations: Last week data")
+    #send_via_email(glob.glob("21*/*_full.png"), "Weather Stations: Full time series")
 
